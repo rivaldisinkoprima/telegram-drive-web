@@ -124,55 +124,56 @@ Sudah dikonfigurasi?
 
 ## ✨ Fitur Utama
 
-Aplikasi ini tidak hanya bertindak sebagai jembatan ke Telegram, tetapi dirancang menyerupai pengalaman *cloud storage* profesional (seperti Google Drive atau Dropbox). Berikut rincian setiap fiturnya:
+Aplikasi ini tidak hanya bertindak sebagai jembatan ke Telegram, tetapi dirancang menyerupai pengalaman *cloud storage* tingkat lanjut (seperti Google Drive, Dropbox, atau Mega). Berikut rincian setiap fiturnya:
 
 ### 1. ⚙️ Setup API via Web UI
 Anda tidak perlu repot-repot menyentuh atau mengedit file `.env` untuk mengatur API credentials. Saat pertama kali dijalankan, antarmuka web interaktif akan memandu Anda untuk memasukkan `API ID` dan `API Hash` dengan aman. Data ini disimpan lokal dalam bentuk JSON di server.
 
-### 2. 🔐 Multi-Opsi Autentikasi
-Kami mendukung penuh sistem keamanan login Telegram:
-- **Login via OTP:** Cukup masukkan nomor telepon, dan Telegram akan mengirimkan kode OTP untuk Anda masuk.
-- **Login via QR Code:** Scan barcode di layar menggunakan aplikasi Telegram di HP Anda untuk login instan.
-- **Dukungan 2FA:** Jika akun Telegram Anda dilindungi oleh *Two-Step Verification* (kata sandi tambahan), aplikasi kami akan memintanya secara otomatis.
+### 2. 🔐 Autentikasi & Keamanan Ganda
+- **Login OTP / QR Code:** Mendukung login standar Telegram tanpa harus mematikan 2FA (Two-Step Verification).
+- **Auto-Lock Screen (PIN):** Privasi Anda terjaga secara otomatis. Jika tidak ada aktivitas mouse/keyboard selama 15 menit, layar *dashboard* akan tertutup blur gelap (*AFK Lock*). Anda harus memasukkan 6 digit PIN (diatur via menu Settings) untuk melanjutkannya.
 
-### 3. 📁 Manajemen File & Folder Mirip Google Drive
-- **Folder Virtual:** Telegram aslinya tidak punya sistem "folder". Aplikasi kami membuatkan lapisan *virtual directory* menggunakan SQLite untuk mencatat struktur folder Anda sehingga file bisa dikelompokkan dengan rapi.
-- **Operasi Standar:** Anda bisa membuat folder baru, mengganti nama file/folder, menghapus, atau memindahkan file antar folder layaknya di OS lokal.
-- **Grid & List View:** Tersedia mode tampilan grid (dengan thumbnail ukuran besar) dan mode list (baris yang lebih padat).
+### 3. 📁 Local SQLite File Indexing (Akses Instan)
+Berbeda dengan klien Telegram biasa yang lambat saat membaca ribuan file:
+- **Virtual Directory Cache:** Aplikasi membuat struktur folder virtual dan mencatat metadatanya di database SQLite lokal. 
+- **Kecepatan Lokal:** Navigasi antar folder, pencarian file, dan *loading* halaman terjadi secara instan (tanpa perlu melakukan *request iter_messages* ke Telegram setiap saat).
 
-### 4. ⚡ Upload & Download Super Cepat
-- **Drag & Drop:** Seret dan lepas (drag & drop) file atau folder dari desktop Anda langsung ke dalam browser.
-- **Real-time Progress Queue:** Saat mengunggah beberapa file besar sekaligus, akan muncul panel antrean (*queue*) di pojok bawah untuk memantau progres upload per-file secara *real-time*.
+### 4. ⚡ Resume-able Chunked Uploads & Telegram Premium
+Sistem *upload* kami dirancang tahan banting terhadap koneksi internet buruk:
+- **Resumable (Anti Gagal):** File diunggah menggunakan arsitektur *Chunked REST API*. Jika di tengah *upload* koneksi internet mati atau tab ter-tutup, Anda bisa melanjutkannya nanti persis di persentase terakhir (tidak mulai dari 0%).
+- **Dukungan Telegram Premium:** Sistem secara cerdas mendeteksi status Premium Anda. Memungkinkan pengunggahan file maksimal **4GB** per file untuk pengguna Premium, dan **2GB** untuk pengguna Reguler.
 
-### 5. 🎬 Streaming Media Langsung Tanpa Download
-Tidak perlu mengunduh file video atau audio bergiga-giga hanya untuk melihat isinya!
+### 5. 🛡️ Client-Side End-to-End Encryption (E2EE) Sejati
+Tingkat keamanan privasi setara *Mega.nz*:
+- Jika Anda mengaktifkan opsi **E2EE** saat mengunggah, file Anda akan dipotong dan dienkripsi (AES-256-GCM) **sepenuhnya di dalam browser** (menggunakan Web Crypto API).
+- Server backend maupun Telegram murni hanya menerima data *gibberish* (acak) yang mustahil didekripsi oleh siapapun tanpa *Master Password* Anda.
+
+### 6. 🎬 Streaming Media Langsung Tanpa Download
+Tidak perlu mengunduh file video atau audio bergiga-giga hanya untuk melihat isinya (Hanya berlaku untuk file non-E2EE)!
 - **Video & Audio Player:** Backend kami menggunakan fitur HTTP Range Requests untuk melakukan *streaming chunked data* langsung dari server Telegram ke pemutar video di browser Anda.
 
-### 6. 🔗 Shareable Download Links (Link Berbagi Publik)
+### 7. 🔗 Shareable Download Links (Link Berbagi Publik)
 Punya file besar di Telegram yang ingin dibagikan ke teman yang *tidak punya* Telegram?
 - **Publik Link:** Anda bisa men-generate URL unik pendek (`/s/token`) untuk membagikan file tertentu.
 - **Proteksi Password & Kedaluwarsa:** Tambahkan opsi kata sandi, atau tentukan kapan link tersebut kedaluwarsa secara otomatis (misal: hangus dalam 24 jam).
 - **Statistik:** Pantau berapa kali file tersebut telah diunduh oleh orang lain melalui halaman Pengaturan.
 
-### 7. 🛡️ Proxy & Pembatasan Jaringan (Network)
-- **SOCKS5 Proxy:** Jika Telegram diblokir di negara/ISP Anda, Anda bisa langsung mengatur Proxy SOCKS5 dari halaman Pengaturan UI (mendukung otentikasi username/password).
-- **Bandwidth Control:** Atur batas maksimum kecepatan unggah (*upload*) dan unduh (*download*) agar tidak memonopoli koneksi internet Anda.
-
-### 8. 🔑 REST API Key External (Akses Bot/Otomatisasi)
-- Ingin menghubungkan Telegram Drive ke platform seperti **Make, n8n, atau script Python custom**? Anda bisa meng-generate sebuah `API KEY` statis dari menu Pengaturan. API key ini memungkinkan program pihak ketiga untuk memanipulasi file Anda melalui Endpoint REST standar tanpa perlu login OTP.
+### 8. 🛡️ Pawang Anti-FloodWait & Pembatasan Jaringan
+- **Smart FloodWait Handling:** Konfigurasi *Telethon* tingkat rendah memastikan jika Anda menembus limit *request* Telegram, aplikasi **tidak akan crash**. Backend akan mem-pause *task* latar belakang secara elegan dan melanjutkannya setelah penalti waktu usai.
+- **SOCKS5 Proxy:** Jika Telegram diblokir di negara/ISP Anda, Anda bisa langsung mengatur Proxy SOCKS5 dari halaman Pengaturan UI.
+- **Bandwidth Control:** Atur batas maksimum kecepatan unggah (*upload*) dan unduh (*download*).
 
 ### 9. 🎨 Modern Dark Mode UI
 - Antarmuka dirancang dengan *Glassmorphism*, transisi halus (Framer Motion), dan *palette* warna *Dark Mode* modern (mirip GitHub/Vercel) sehingga nyaman di mata untuk penggunaan jangka panjang.
 
 ---
 
-## 🔒 Keamanan
+## 🔒 Privasi Inti
 
-- Sesi web dilindungi dengan **JWT (HTTP-only Cookie)**
-- **API ID & API Hash tersimpan lokal** di `db/settings.json` — tidak dikirim ke mana pun
-- File sesi Telegram tersimpan **lokal di server**
-- Password share link di-**hash** dengan bcrypt
-- Aplikasi ini dirancang untuk penggunaan **pribadi / single user**
+- Sesi web dilindungi dengan **JWT (HTTP-only Cookie)**.
+- **API ID & API Hash tersimpan lokal** di `db/settings.json` — tidak dikirim ke mana pun.
+- Kunci dekripsi E2EE **tidak pernah** dikirim ke jaringan.
+- Aplikasi ini murni bertindak sebagai *client* pribadi di mesin (PC/Server) Anda sendiri.
 
 ---
 
