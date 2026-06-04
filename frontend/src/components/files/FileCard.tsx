@@ -7,7 +7,7 @@ import ShareDialog from './ShareDialog'
 import toast from 'react-hot-toast'
 import { useDownload } from '@/hooks/useDownload'
 
-interface Props { file: FileItem; onPreview?: () => void }
+interface Props { file: FileItem; onPreview?: () => void; onPreviewPdf?: () => void }
 
 function getIcon(mime: string) {
   if (mime.startsWith('video/')) return <Film className="w-8 h-8 text-purple-400" />
@@ -26,7 +26,7 @@ function formatSize(bytes: number) {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 
-export default function FileCard({ file, onPreview }: Props) {
+export default function FileCard({ file, onPreview, onPreviewPdf }: Props) {
   const { currentFolderId } = useDriveStore()
   const qc = useQueryClient()
   const [hovered, setHovered] = useState(false)
@@ -85,8 +85,9 @@ export default function FileCard({ file, onPreview }: Props) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={() => {
-        if (!file.is_encrypted && isImage && onPreview) {
-          onPreview()
+        if (!file.is_encrypted) {
+          if (isImage && onPreview) onPreview()
+          else if (isPdf && onPreviewPdf) onPreviewPdf()
         }
       }}
       className="relative group rounded-xl border border-white/5 hover:border-blue-500/30
@@ -129,22 +130,13 @@ export default function FileCard({ file, onPreview }: Props) {
               className="p-2 rounded-lg bg-white/10 hover:bg-blue-600 text-white transition-all">
               {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             </a>
-            {!file.is_encrypted && isMedia && !isImage && (
+            {!file.is_encrypted && isVideo && (
               <a
                 href={filesApi.streamUrl(file.message_id, currentFolderId)}
                 target="_blank" rel="noreferrer"
                 className="p-2 rounded-lg bg-white/10 hover:bg-purple-600 text-white transition-all"
                 onClick={(e) => e.stopPropagation()}>
                 <Film className="w-4 h-4" />
-              </a>
-            )}
-            {!file.is_encrypted && isPdf && (
-              <a
-                href={filesApi.streamUrl(file.message_id, currentFolderId)}
-                target="_blank" rel="noreferrer"
-                className="p-2 rounded-lg bg-white/10 hover:bg-red-600 text-white transition-all"
-                onClick={(e) => e.stopPropagation()}>
-                <FileText className="w-4 h-4" />
               </a>
             )}
             <button

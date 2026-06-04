@@ -8,8 +8,8 @@ from fastapi.responses import StreamingResponse, Response
 
 from services.auth_service import get_current_user
 from services.telegram_client import telegram_manager
-from models.database import get_session
-from sqlmodel import Session
+from models.database import get_session, FileCache
+from sqlmodel import Session, select
 from routers.files import _resolve_peer
 
 router = APIRouter(prefix="/stream", tags=["Streaming"])
@@ -69,6 +69,16 @@ async def stream_file(
         # Parse Range header
         range_header = request.headers.get("Range")
 
+        # Get file name and override mime_type from cache if available
+        cached_file = db.exec(select(FileCache).where(FileCache.message_id == message_id)).first()
+        file_name = cached_file.file_name if cached_file else "file"
+        if cached_file and cached_file.mime_type:
+            mime_type = cached_file.mime_type
+
+        import urllib.parse
+        encoded_name = urllib.parse.quote(file_name, safe='')
+        disposition = f"inline; filename*=UTF-8''{encoded_name}"
+
         if range_header and file_size > 0:
             start, end = _parse_range_header(range_header, file_size)
             content_length = end - start + 1
@@ -96,6 +106,7 @@ async def stream_file(
                     "Accept-Ranges": "bytes",
                     "Content-Length": str(content_length),
                     "Cache-Control": "no-cache",
+                    "Content-Disposition": disposition,
                 },
             )
         else:
@@ -107,6 +118,7 @@ async def stream_file(
             headers = {
                 "Accept-Ranges": "bytes",
                 "Cache-Control": "no-cache",
+                "Content-Disposition": disposition,
             }
             if file_size > 0:
                 headers["Content-Length"] = str(file_size)

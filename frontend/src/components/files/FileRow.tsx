@@ -8,7 +8,7 @@ import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { useDownload } from '@/hooks/useDownload'
 
-interface Props { file: FileItem; onPreview?: () => void }
+interface Props { file: FileItem; onPreview?: () => void; onPreviewPdf?: () => void }
 
 function getIcon(mime: string) {
   if (mime.startsWith('video/')) return <Film className="w-4 h-4 text-purple-400" />
@@ -26,7 +26,7 @@ function formatSize(bytes: number) {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 
-export default function FileRow({ file, onPreview }: Props) {
+export default function FileRow({ file, onPreview, onPreviewPdf }: Props) {
   const { currentFolderId } = useDriveStore()
   const qc = useQueryClient()
   const [shareOpen, setShareOpen] = useState(false)
@@ -89,8 +89,13 @@ export default function FileRow({ file, onPreview }: Props) {
       <div className="flex-1 min-w-0 flex items-center gap-2">
         {file.is_encrypted && <div className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[10px] font-bold">E2EE</div>}
         <p
-          className={`text-sm text-white/90 font-medium truncate ${!file.is_encrypted && isImage ? 'cursor-pointer hover:text-blue-400 transition-colors' : ''}`}
-          onClick={() => { if (!file.is_encrypted && isImage && onPreview) onPreview() }}
+          className={`text-sm text-white/90 font-medium truncate ${!file.is_encrypted && (isImage || isPdf) ? 'cursor-pointer hover:text-blue-400 transition-colors' : ''}`}
+          onClick={() => {
+            if (!file.is_encrypted) {
+              if (isImage && onPreview) onPreview()
+              else if (isPdf && onPreviewPdf) onPreviewPdf()
+            }
+          }}
         >
           {file.is_encrypted ? file.file_name.replace('.enc', '') : file.file_name}
         </p>
@@ -121,16 +126,11 @@ export default function FileRow({ file, onPreview }: Props) {
           className="p-1.5 rounded-lg hover:bg-blue-600/20 text-white/40 hover:text-blue-400 transition-all">
           <Download className="w-3.5 h-3.5" />
         </a>
-        {!file.is_encrypted && isMedia && !isImage && (
+        {!file.is_encrypted && isVideo && (
           <a href={filesApi.streamUrl(file.message_id, currentFolderId)} target="_blank" rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
             className="p-1.5 rounded-lg hover:bg-purple-600/20 text-white/40 hover:text-purple-400 transition-all">
             <Film className="w-3.5 h-3.5" />
-          </a>
-        )}
-        {!file.is_encrypted && isPdf && (
-          <a href={filesApi.streamUrl(file.message_id, currentFolderId)} target="_blank" rel="noreferrer"
-            className="p-1.5 rounded-lg hover:bg-red-600/20 text-white/40 hover:text-red-400 transition-all">
-            <FileText className="w-3.5 h-3.5" />
           </a>
         )}
         <button onClick={handleRename}
