@@ -4,7 +4,7 @@ import { useDropzone } from 'react-dropzone'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Folder, File, Upload, Grid3x3, List, Search,
-  Plus, Settings, LogOut, CloudUpload, X, ChevronRight
+  Plus, Settings, LogOut, CloudUpload, X, ChevronRight, Trash2
 } from 'lucide-react'
 import { foldersApi, filesApi, authApi } from '@/api'
 import { useDriveStore, useAuthStore, useUploadStore } from '@/stores'
@@ -16,6 +16,7 @@ import UploadQueue from '@/components/files/UploadQueue'
 import CreateFolderDialog from '@/components/files/CreateFolderDialog'
 import { useState } from 'react'
 import clsx from 'clsx'
+import toast from 'react-hot-toast'
 
 export default function DashboardPage() {
   const navigate = useNavigate()
@@ -72,6 +73,26 @@ export default function DashboardPage() {
     mutationFn: authApi.logout,
     onSuccess: () => { resetAuth(); navigate('/login') },
   })
+
+  // Delete folder
+  const deleteFolderMut = useMutation({
+    mutationFn: (id: number) => foldersApi.delete(id),
+    onSuccess: (_, deletedId) => {
+      qc.invalidateQueries({ queryKey: ['folders'] })
+      if (currentFolderId === deletedId) {
+        setCurrentFolder(null)
+      }
+    },
+  })
+
+  const handleDeleteFolder = (e: React.MouseEvent, id: number) => {
+    e.stopPropagation()
+    toast.promise(deleteFolderMut.mutateAsync(id), {
+      loading: 'Menghapus folder...',
+      success: 'Folder berhasil dihapus',
+      error: 'Gagal menghapus folder',
+    })
+  }
 
   const currentFolderName = currentFolderId
     ? folders.find((f) => f.id === currentFolderId)?.name ?? 'Folder'
@@ -134,16 +155,26 @@ export default function DashboardPage() {
               </button>
             </div>
             {folders.map((folder) => (
-              <button key={folder.id} onClick={() => setCurrentFolder(folder.id)}
-                className={clsx(
-                  'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
-                  currentFolderId === folder.id
-                    ? 'bg-blue-600/20 text-blue-400'
-                    : 'text-white/60 hover:text-white hover:bg-white/5'
-                )}>
-                <Folder className="w-4 h-4 flex-shrink-0" />
-                <span className="truncate">{folder.name}</span>
-              </button>
+              <div key={folder.id} className="group relative">
+                <button onClick={() => setCurrentFolder(folder.id)}
+                  className={clsx(
+                    'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all pr-9',
+                    currentFolderId === folder.id
+                      ? 'bg-blue-600/20 text-blue-400'
+                      : 'text-white/60 hover:text-white hover:bg-white/5'
+                  )}>
+                  <Folder className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate text-left">{folder.name}</span>
+                </button>
+                <button
+                  onClick={(e) => handleDeleteFolder(e, folder.id)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg
+                    text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-all
+                    opacity-0 group-hover:opacity-100"
+                  title="Hapus folder">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             ))}
           </div>
         </nav>

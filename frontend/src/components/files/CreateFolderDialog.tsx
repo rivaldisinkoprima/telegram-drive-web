@@ -16,11 +16,20 @@ export default function CreateFolderDialog({ open, onClose }: Props) {
 
   const createMut = useMutation({
     mutationFn: () => foldersApi.create(name.trim()),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['folders'] })
+    onSuccess: (res) => {
+      qc.setQueryData(['folders'], (old: any) => {
+        if (!old || !old.data) return { data: [res.data] }
+        // Cek jika sudah ada untuk menghindari duplikat
+        const exists = old.data.find((f: any) => f.id === res.data.id)
+        if (exists) return old
+        return { ...old, data: [...old.data, res.data] }
+      })
       setName('')
       setError('')
       onClose()
+      
+      // Invalidate query in the background to ensure consistency
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['folders'] }), 2000)
     },
     onError: (e: any) => setError(e.response?.data?.detail || 'Gagal membuat folder.'),
   })

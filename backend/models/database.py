@@ -19,6 +19,14 @@ class ShareLink(SQLModel, table=True):
     download_count: int = 0
 
 
+# --- Tabel Folder Cache ---
+class FolderCache(SQLModel, table=True):
+    id: int = Field(primary_key=True)
+    name: str
+    username: Optional[str] = None
+    is_public: bool = False
+
+
 # --- Database Engine ---
 engine = create_engine(
     f"sqlite:///{settings.db_path}",

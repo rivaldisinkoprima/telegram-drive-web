@@ -1,8 +1,10 @@
 import { type FileItem, useDriveStore } from '@/stores'
 import { filesApi } from '@/api'
-import { Download, Trash2, Film, Music, Image, FileText, Archive, File } from 'lucide-react'
 import { useState } from 'react'
+import { Download, Trash2, Film, Music, Image, FileText, Archive, File, Link as LinkIcon } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import ShareDialog from './ShareDialog'
+import toast from 'react-hot-toast'
 
 interface Props { file: FileItem }
 
@@ -27,6 +29,7 @@ export default function FileCard({ file }: Props) {
   const { currentFolderId } = useDriveStore()
   const qc = useQueryClient()
   const [hovered, setHovered] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const isImage = file.mime_type.startsWith('image/')
   const isVideo = file.mime_type.startsWith('video/')
   const isAudio = file.mime_type.startsWith('audio/')
@@ -35,6 +38,14 @@ export default function FileCard({ file }: Props) {
     mutationFn: () => filesApi.delete(file.message_id, currentFolderId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['files', currentFolderId] }),
   })
+
+  const handleDelete = () => {
+    toast.promise(deleteMut.mutateAsync(), {
+      loading: 'Menghapus file...',
+      success: 'File berhasil dihapus',
+      error: 'Gagal menghapus file',
+    })
+  }
 
   return (
     <div
@@ -63,6 +74,11 @@ export default function FileCard({ file }: Props) {
         {/* Hover overlay */}
         {hovered && (
           <div className="absolute inset-0 bg-black/60 flex items-center justify-center gap-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); setShareOpen(true) }}
+              className="p-2 rounded-lg bg-white/10 hover:bg-blue-600 text-white transition-all">
+              <LinkIcon className="w-4 h-4" />
+            </button>
             <a
               href={filesApi.downloadUrl(file.message_id, currentFolderId)}
               download={file.file_name}
@@ -80,7 +96,7 @@ export default function FileCard({ file }: Props) {
               </a>
             )}
             <button
-              onClick={(e) => { e.stopPropagation(); deleteMut.mutate() }}
+              onClick={(e) => { e.stopPropagation(); handleDelete() }}
               className="p-2 rounded-lg bg-white/10 hover:bg-red-600 text-white transition-all">
               <Trash2 className="w-4 h-4" />
             </button>
@@ -95,6 +111,13 @@ export default function FileCard({ file }: Props) {
         </p>
         <p className="text-xs text-white/30 mt-0.5">{formatSize(file.file_size)}</p>
       </div>
+
+      <ShareDialog
+        file={file}
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        currentFolderId={currentFolderId}
+      />
     </div>
   )
 }

@@ -7,7 +7,9 @@ from telethon.tl.functions.channels import (
 )
 from telethon.tl.functions.messages import SetHistoryTTLRequest
 from telethon.tl.types import InputPeerChannel
+from sqlmodel import select, Session
 from models.schemas import FolderCreate, FolderRename, FolderInfo
+from models.database import FolderCache, get_session
 from services.telegram_client import telegram_manager
 from services.auth_service import get_current_user
 
@@ -24,31 +26,60 @@ def _is_td_folder(channel) -> bool:
 
 
 @router.get("", response_model=list[FolderInfo])
-async def list_folders(_user=Depends(get_current_user)):
+async def list_folders(
+    sync: bool = False,
+    db: Session = Depends(get_session),
+    _user=Depends(get_current_user)
+):
     """Ambil semua folder (channel privat yang dibuat oleh aplikasi ini)."""
     try:
+        # Cek cache lokal dulu (sangat cepat)
+        cached_folders = db.exec(select(FolderCache)).all()
+        if cached_folders and not sync:
+            return [FolderInfo(
+                id=f.id, name=f.name, username=f.username, is_public=f.is_public
+            ) for f in cached_folders]
+
         client = await telegram_manager.get_client()
         folders = []
+
+        # Bersihkan cache lama jika kita melakukan sync ulang
+        if sync:
+            for f in cached_folders:
+                db.delete(f)
+            db.commit()
 
         async for dialog in client.iter_dialogs():
             if dialog.is_channel and not dialog.is_group:
                 entity = dialog.entity
                 if _is_td_folder(entity):
                     name = entity.title.replace(" [TD]", "").strip()
+                    username = getattr(entity, "username", None)
+                    is_public = bool(username)
                     folders.append(FolderInfo(
                         id=entity.id,
                         name=name,
-                        username=getattr(entity, "username", None),
-                        is_public=bool(getattr(entity, "username", None)),
+                        username=username,
+                        is_public=is_public,
                     ))
-
+                    # Simpan ke cache
+                    if not db.exec(select(FolderCache).where(FolderCache.id == entity.id)).first():
+                        db.add(FolderCache(
+                            id=entity.id, name=name, username=username, is_public=is_public
+                        ))
+        
+        db.commit()
         return folders
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("", response_model=FolderInfo)
-async def create_folder(body: FolderCreate, _user=Depends(get_current_user)):
+async def create_folder(
+    body: FolderCreate, 
+    db: Session = Depends(get_session),
+    _user=Depends(get_current_user)
+):
     """Buat folder baru (channel privat baru di Telegram)."""
     try:
         client = await telegram_manager.get_client()
@@ -71,6 +102,16 @@ async def create_folder(body: FolderCreate, _user=Depends(get_current_user)):
         except Exception:
             pass
 
+        # Simpan ke cache
+        new_folder = FolderCache(
+            id=channel.id,
+            name=body.name,
+            username=None,
+            is_public=False,
+        )
+        db.add(new_folder)
+        db.commit()
+
         return FolderInfo(
             id=channel.id,
             name=body.name,
@@ -82,13 +123,24 @@ async def create_folder(body: FolderCreate, _user=Depends(get_current_user)):
 
 
 @router.delete("/{folder_id}")
-async def delete_folder(folder_id: int, _user=Depends(get_current_user)):
+async def delete_folder(
+    folder_id: int, 
+    db: Session = Depends(get_session),
+    _user=Depends(get_current_user)
+):
     """Hapus folder (channel) beserta semua isinya."""
     try:
         client = await telegram_manager.get_client()
         entity = await client.get_entity(folder_id)
 
         await client(DeleteChannelRequest(channel=entity))
+        
+        # Hapus dari cache
+        cached = db.exec(select(FolderCache).where(FolderCache.id == folder_id)).first()
+        if cached:
+            db.delete(cached)
+            db.commit()
+            
         return {"success": True, "message": f"Folder {folder_id} berhasil dihapus."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -98,6 +150,7 @@ async def delete_folder(folder_id: int, _user=Depends(get_current_user)):
 async def rename_folder(
     folder_id: int,
     body: FolderRename,
+    db: Session = Depends(get_session),
     _user=Depends(get_current_user),
 ):
     """Ganti nama folder."""
@@ -109,6 +162,13 @@ async def rename_folder(
             channel=entity,
             title=f"{body.new_name} [TD]",
         ))
+
+        # Update cache
+        cached = db.exec(select(FolderCache).where(FolderCache.id == folder_id)).first()
+        if cached:
+            cached.name = body.new_name
+            db.add(cached)
+            db.commit()
 
         return FolderInfo(
             id=folder_id,

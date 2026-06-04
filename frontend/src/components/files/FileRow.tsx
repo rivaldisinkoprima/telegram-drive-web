@@ -1,8 +1,11 @@
 import { type FileItem, useDriveStore } from '@/stores'
 import { filesApi } from '@/api'
-import { Download, Trash2, Film, Music, Image, FileText, Archive, File } from 'lucide-react'
+import { Download, Trash2, Film, Music, Image, FileText, Archive, File, Link as LinkIcon } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import ShareDialog from './ShareDialog'
 import { format } from 'date-fns'
+import toast from 'react-hot-toast'
 
 interface Props { file: FileItem }
 
@@ -25,11 +28,20 @@ function formatSize(bytes: number) {
 export default function FileRow({ file }: Props) {
   const { currentFolderId } = useDriveStore()
   const qc = useQueryClient()
+  const [shareOpen, setShareOpen] = useState(false)
 
   const deleteMut = useMutation({
     mutationFn: () => filesApi.delete(file.message_id, currentFolderId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['files', currentFolderId] }),
   })
+
+  const handleDelete = () => {
+    toast.promise(deleteMut.mutateAsync(), {
+      loading: 'Menghapus file...',
+      success: 'File berhasil dihapus',
+      error: 'Gagal menghapus file',
+    })
+  }
 
   const isMedia = file.mime_type.startsWith('video/') || file.mime_type.startsWith('audio/') || file.mime_type.startsWith('image/')
 
@@ -60,6 +72,10 @@ export default function FileRow({ file }: Props) {
 
       {/* Actions */}
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button onClick={() => setShareOpen(true)}
+          className="p-1.5 rounded-lg hover:bg-blue-600/20 text-white/40 hover:text-blue-400 transition-all">
+          <LinkIcon className="w-3.5 h-3.5" />
+        </button>
         <a href={filesApi.downloadUrl(file.message_id, currentFolderId)} download={file.file_name}
           className="p-1.5 rounded-lg hover:bg-blue-600/20 text-white/40 hover:text-blue-400 transition-all">
           <Download className="w-3.5 h-3.5" />
@@ -70,11 +86,18 @@ export default function FileRow({ file }: Props) {
             <Film className="w-3.5 h-3.5" />
           </a>
         )}
-        <button onClick={() => deleteMut.mutate()}
+        <button onClick={handleDelete}
           className="p-1.5 rounded-lg hover:bg-red-600/20 text-white/40 hover:text-red-400 transition-all">
           <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      <ShareDialog
+        file={file}
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        currentFolderId={currentFolderId}
+      />
     </div>
   )
 }
