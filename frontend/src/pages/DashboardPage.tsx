@@ -4,7 +4,7 @@ import { useDropzone } from 'react-dropzone'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Folder, File, Upload, Grid3x3, List, Search,
-  Plus, Settings, LogOut, CloudUpload, X, ChevronRight, Trash2, RefreshCw
+  Plus, Settings, LogOut, CloudUpload, X, ChevronRight, Trash2, RefreshCw, Edit
 } from 'lucide-react'
 import { foldersApi, filesApi, authApi } from '@/api'
 import { useDriveStore, useAuthStore, useUploadStore } from '@/stores'
@@ -116,6 +116,26 @@ export default function DashboardPage() {
     })
   }
 
+  // Rename folder
+  const renameFolderMut = useMutation({
+    mutationFn: ({ id, newName }: { id: number; newName: string }) => foldersApi.rename(id, newName),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['folders'] })
+    },
+  })
+
+  const handleRenameFolder = (e: React.MouseEvent, id: number, oldName: string) => {
+    e.stopPropagation()
+    const newName = prompt('Masukkan nama folder baru:', oldName)
+    if (newName && newName.trim() && newName !== oldName) {
+      toast.promise(renameFolderMut.mutateAsync({ id, newName: newName.trim() }), {
+        loading: 'Mengganti nama...',
+        success: 'Nama folder berhasil diganti',
+        error: 'Gagal mengganti nama folder',
+      })
+    }
+  }
+
   const currentFolderName = currentFolderId
     ? folders.find((f) => f.id === currentFolderId)?.name ?? 'Folder'
     : 'Saved Messages'
@@ -188,14 +208,20 @@ export default function DashboardPage() {
                   <Folder className="w-4 h-4 flex-shrink-0" />
                   <span className="truncate text-left">{folder.name}</span>
                 </button>
-                <button
-                  onClick={(e) => handleDeleteFolder(e, folder.id)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg
-                    text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-all
-                    opacity-0 group-hover:opacity-100"
-                  title="Hapus folder">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={(e) => handleRenameFolder(e, folder.id, folder.name)}
+                    className="p-1.5 rounded-lg text-white/40 hover:text-blue-400 hover:bg-blue-500/10 transition-all"
+                    title="Ganti nama">
+                    <Edit className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={(e) => handleDeleteFolder(e, folder.id)}
+                    className="p-1.5 rounded-lg text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                    title="Hapus folder">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

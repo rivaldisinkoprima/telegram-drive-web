@@ -30,7 +30,8 @@ class FolderCache(SQLModel, table=True):
 
 # --- Tabel File Cache ---
 class FileCache(SQLModel, table=True):
-    message_id: int = Field(primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    message_id: int = Field(index=True)
     folder_id: Optional[int] = Field(default=None, index=True)
     file_name: str
     file_size: int

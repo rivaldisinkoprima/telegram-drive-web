@@ -1,7 +1,7 @@
 import { type FileItem, useDriveStore } from '@/stores'
 import { filesApi } from '@/api'
 import { useState } from 'react'
-import { Download, Trash2, Film, Music, Image as ImageIcon, FileText, Archive, File, Link as LinkIcon, Loader2 } from 'lucide-react'
+import { Download, Trash2, Film, Music, Image as ImageIcon, FileText, Archive, File, Link as LinkIcon, Loader2, Edit } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import ShareDialog from './ShareDialog'
 import toast from 'react-hot-toast'
@@ -60,6 +60,23 @@ export default function FileCard({ file, onPreview }: Props) {
       if (pwd) {
         downloadEncryptedFile(file.message_id, currentFolderId, file.file_name, pwd)
       }
+    }
+  }
+
+  const renameMut = useMutation({
+    mutationFn: (newName: string) => filesApi.rename(file.message_id, newName, currentFolderId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['files', currentFolderId] }),
+  })
+
+  const handleRename = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const newName = prompt('Masukkan nama file baru:', file.file_name)
+    if (newName && newName.trim() && newName !== file.file_name) {
+      toast.promise(renameMut.mutateAsync(newName.trim()), {
+        loading: 'Mengganti nama...',
+        success: 'Nama file berhasil diganti',
+        error: 'Gagal mengganti nama file',
+      })
     }
   }
 
@@ -130,6 +147,11 @@ export default function FileCard({ file, onPreview }: Props) {
                 <FileText className="w-4 h-4" />
               </a>
             )}
+            <button
+              onClick={handleRename}
+              className="p-2 rounded-lg bg-white/10 hover:bg-blue-600 text-white transition-all">
+              <Edit className="w-4 h-4" />
+            </button>
             <button
               onClick={(e) => { e.stopPropagation(); handleDelete() }}
               className="p-2 rounded-lg bg-white/10 hover:bg-red-600 text-white transition-all">
