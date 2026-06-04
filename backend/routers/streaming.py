@@ -33,7 +33,6 @@ async def stream_file(
     message_id: int,
     request: Request,
     folder_id: Optional[int] = Query(default=None),
-    _user=Depends(get_current_user),
 ):
     """
     Stream file media (video/audio/gambar) dengan dukungan Range Request.
@@ -125,7 +124,6 @@ async def stream_file(
 async def preview_file(
     message_id: int,
     folder_id: Optional[int] = Query(default=None),
-    _user=Depends(get_current_user),
 ):
     """
     Ambil thumbnail/preview gambar dari file.

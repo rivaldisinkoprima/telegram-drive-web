@@ -25,6 +25,7 @@ class FolderCache(SQLModel, table=True):
     name: str
     username: Optional[str] = None
     is_public: bool = False
+    access_hash: Optional[int] = None
 
 
 # --- Tabel File Cache ---

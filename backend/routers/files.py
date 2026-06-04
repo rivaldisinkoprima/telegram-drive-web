@@ -18,7 +18,7 @@ from sqlmodel import Session, select
 from models.schemas import (
     FileInfo, FileListResponse, FileMoveRequest, FileRenameRequest,
 )
-from models.database import FileCache, get_session
+from models.database import FileCache, FolderCache, get_session
 from services.auth_service import get_current_user
 from services.telegram_client import telegram_manager
 
@@ -42,7 +42,8 @@ class UploadInitRequest(BaseModel):
 @router.post("/upload/init")
 async def init_upload(body: UploadInitRequest, _user=Depends(get_current_user)):
     """Inisialisasi upload dan kembalikan byte yang sudah terunggah (jika ada)."""
-    file_id = hashlib.md5(f"{body.file_name}_{body.file_size}_{_user.id}".encode()).hexdigest()
+    user_key = _user.get('sub', 'user')
+    file_id = hashlib.md5(f"{body.file_name}_{body.file_size}_{user_key}".encode()).hexdigest()
     file_path = os.path.join(UPLOAD_DIR, f"{file_id}.part")
     
     uploaded_bytes = 0
@@ -79,7 +80,7 @@ async def finish_upload(
         
     try:
         client = await telegram_manager.get_client()
-        peer = _get_peer(body.folder_id)
+        peer = await _resolve_peer(client, body.folder_id, db=db)
         
         # Telethon otomatis menangani upload file besar
         msg = await client.send_file(
@@ -116,6 +117,31 @@ async def finish_upload(
 def _get_peer(folder_id: Optional[int]):
     """Konversi folder_id ke peer Telethon. None = Saved Messages."""
     return folder_id if folder_id else "me"
+
+async def _resolve_peer(client, folder_id: Optional[int], db: Session = None):
+    """Resolve peer dengan aman menggunakan access_hash dari DB terlebih dahulu."""
+    if not folder_id:
+        return "me"
+    
+    # Coba ambil access_hash dari database (cara paling andal)
+    if db:
+        from sqlmodel import select
+        cached_folder = db.exec(
+            select(FolderCache).where(FolderCache.id == folder_id)
+        ).first()
+        if cached_folder and cached_folder.access_hash:
+            from telethon.tl.types import InputPeerChannel
+            return InputPeerChannel(
+                channel_id=folder_id,
+                access_hash=cached_folder.access_hash
+            )
+    
+    # Fallback: coba get_entity (butuh session cache Telethon)
+    try:
+        entity = await client.get_entity(folder_id)
+        return entity
+    except Exception:
+        return folder_id
 
 
 def _extract_file_info(message, folder_id: Optional[int]) -> Optional[FileInfo]:
@@ -224,10 +250,13 @@ async def list_files(
                     ) for f in files
                 ]
                 return FileListResponse(files=file_infos, total=len(file_infos), has_more=has_more)
+            else:
+                # Cache kosong tapi sync=False — kembalikan list kosong, jangan paksa koneksi ke Telegram
+                return FileListResponse(files=[], total=0, has_more=False)
 
-        # Jika cache kosong atau sync=True, ambil dari Telegram
+        # Hanya konek ke Telegram jika sync=True
         client = await telegram_manager.get_client()
-        peer = _get_peer(folder_id)
+        peer = await _resolve_peer(client, folder_id, db=db)
         files = []
 
         # Bersihkan cache untuk folder ini jika sync
@@ -265,6 +294,8 @@ async def list_files(
 
         return FileListResponse(files=files, total=len(files), has_more=has_more)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -280,7 +311,7 @@ async def download_file(
     """Download file langsung dari Telegram ke browser."""
     try:
         client = await telegram_manager.get_client()
-        peer = _get_peer(folder_id)
+        peer = await _resolve_peer(client, folder_id, db=db)
 
         messages = await client.get_messages(peer, ids=message_id)
         msg = messages if not isinstance(messages, list) else (messages[0] if messages else None)
@@ -331,7 +362,7 @@ async def delete_file(
     """Hapus file (hapus pesan di Telegram)."""
     try:
         client = await telegram_manager.get_client()
-        peer = _get_peer(folder_id)
+        peer = await _resolve_peer(client, folder_id, db=db)
         await client.delete_messages(peer, [message_id])
         
         # Hapus dari cache
@@ -363,7 +394,7 @@ async def rename_file(
     """
     try:
         client = await telegram_manager.get_client()
-        peer = _get_peer(folder_id)
+        peer = await _resolve_peer(client, folder_id, db=db)
 
         await client.edit_message(peer, message_id, text=f"📄 {body.new_name}")
         
@@ -393,8 +424,8 @@ async def move_file(
     """Pindahkan file ke folder lain dengan cara forward + delete."""
     try:
         client = await telegram_manager.get_client()
-        src_peer = _get_peer(folder_id)
-        dst_peer = _get_peer(body.target_folder_id)
+        src_peer = await _resolve_peer(client, folder_id, db=db)
+        dst_peer = await _resolve_peer(client, body.target_folder_id, db=db)
 
         messages = await client.get_messages(src_peer, ids=message_id)
         msg = messages if not isinstance(messages, list) else (messages[0] if messages else None)

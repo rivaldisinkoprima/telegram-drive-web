@@ -86,14 +86,14 @@ export const filesApi = {
   move: (messageId: number, targetFolderId?: number | null, folderId?: number | null) =>
     api.post(`/files/${messageId}/move`, { target_folder_id: targetFolderId }, { params: { folder_id: folderId } }),
     
-  uploadInit: (fileName: string, fileSize: number, folderId?: number | null) =>
-    api.post('/files/upload/init', { file_name: fileName, file_size: fileSize, folder_id: folderId }),
+  uploadInit: (fileName: string, fileSize: number, folderId?: number | null, isEncrypted = false) =>
+    api.post('/files/upload/init', { file_name: fileName, file_size: fileSize, folder_id: folderId, is_encrypted: isEncrypted }),
     
   uploadChunk: (uploadId: string, chunk: ArrayBuffer) =>
     api.post(`/files/upload/${uploadId}/chunk`, chunk, { headers: { 'Content-Type': 'application/octet-stream' } }),
     
-  uploadFinish: (uploadId: string, fileName: string, fileSize: number, folderId?: number | null) =>
-    api.post(`/files/upload/${uploadId}/finish`, { file_name: fileName, file_size: fileSize, folder_id: folderId }),
+  uploadFinish: (uploadId: string, fileName: string, fileSize: number, folderId?: number | null, isEncrypted = false) =>
+    api.post(`/files/upload/${uploadId}/finish`, { file_name: fileName, file_size: fileSize, folder_id: folderId, is_encrypted: isEncrypted }),
 
   downloadUrl: (messageId: number, folderId?: number | null) => {
     const params = folderId ? `?folder_id=${folderId}` : ''
@@ -108,6 +108,11 @@ export const filesApi = {
   previewUrl: (messageId: number, folderId?: number | null) => {
     const params = folderId ? `?folder_id=${folderId}` : ''
     return `/api/stream/preview/${messageId}${params}`
+  },
+
+  pdfUrl: (messageId: number, folderId?: number | null) => {
+    const params = folderId ? `?folder_id=${folderId}` : ''
+    return `/api/stream/${messageId}${params}`
   },
 }
 

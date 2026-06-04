@@ -36,6 +36,7 @@ export default function FileCard({ file }: Props) {
   const isImage = file.mime_type.startsWith('image/')
   const isVideo = file.mime_type.startsWith('video/')
   const isAudio = file.mime_type.startsWith('audio/')
+  const isPdf = file.mime_type === 'application/pdf'
   const isMedia = isImage || isVideo || isAudio
 
   const deleteMut = useMutation({
@@ -112,6 +113,15 @@ export default function FileCard({ file }: Props) {
                 className="p-2 rounded-lg bg-white/10 hover:bg-purple-600 text-white transition-all"
                 onClick={(e) => e.stopPropagation()}>
                 <Film className="w-4 h-4" />
+              </a>
+            )}
+            {!file.is_encrypted && isPdf && (
+              <a
+                href={filesApi.streamUrl(file.message_id, currentFolderId)}
+                target="_blank" rel="noreferrer"
+                className="p-2 rounded-lg bg-white/10 hover:bg-red-600 text-white transition-all"
+                onClick={(e) => e.stopPropagation()}>
+                <FileText className="w-4 h-4" />
               </a>
             )}
             <button

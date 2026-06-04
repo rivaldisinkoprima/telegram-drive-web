@@ -65,8 +65,14 @@ async def list_folders(
                     # Simpan ke cache
                     if not db.exec(select(FolderCache).where(FolderCache.id == entity.id)).first():
                         db.add(FolderCache(
-                            id=entity.id, name=name, username=username, is_public=is_public
+                            id=entity.id, name=name, username=username, is_public=is_public,
+                            access_hash=getattr(entity, 'access_hash', None)
                         ))
+                    else:
+                        # Update access_hash jika sudah ada
+                        existing = db.exec(select(FolderCache).where(FolderCache.id == entity.id)).first()
+                        existing.access_hash = getattr(entity, 'access_hash', None)
+                        db.add(existing)
         
         db.commit()
         return folders
@@ -108,6 +114,7 @@ async def create_folder(
             name=body.name,
             username=None,
             is_public=False,
+            access_hash=channel.access_hash,
         )
         db.add(new_folder)
         db.commit()

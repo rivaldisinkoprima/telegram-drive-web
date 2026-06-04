@@ -56,6 +56,7 @@ export default function FileRow({ file }: Props) {
   }
 
   const isMedia = file.mime_type.startsWith('video/') || file.mime_type.startsWith('audio/') || file.mime_type.startsWith('image/')
+  const isPdf = file.mime_type === 'application/pdf'
 
 
   return (
@@ -103,6 +104,12 @@ export default function FileRow({ file }: Props) {
           <a href={filesApi.streamUrl(file.message_id, currentFolderId)} target="_blank" rel="noreferrer"
             className="p-1.5 rounded-lg hover:bg-purple-600/20 text-white/40 hover:text-purple-400 transition-all">
             <Film className="w-3.5 h-3.5" />
+          </a>
+        )}
+        {!file.is_encrypted && isPdf && (
+          <a href={filesApi.streamUrl(file.message_id, currentFolderId)} target="_blank" rel="noreferrer"
+            className="p-1.5 rounded-lg hover:bg-red-600/20 text-white/40 hover:text-red-400 transition-all">
+            <FileText className="w-3.5 h-3.5" />
           </a>
         )}
         <button onClick={handleDelete}
