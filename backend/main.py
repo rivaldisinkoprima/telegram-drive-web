@@ -32,6 +32,24 @@ async def on_startup():
     print("✅ Database siap.")
     print(f"📄 API Docs: http://localhost:{settings.backend_port}/api/docs")
 
+    # ── Auto-reconnect: jika session file ada, konek ulang tanpa login ──
+    from routers.setup import get_stored_telegram_config
+    from services.telegram_client import telegram_manager
+    import os
+
+    cfg = get_stored_telegram_config()
+    session_path = os.path.join(settings.session_dir, "user.session")
+
+    if cfg and os.path.exists(session_path):
+        try:
+            await telegram_manager.initialize(cfg["api_id"], cfg["api_hash"])
+            if await telegram_manager.is_authorized():
+                print("🔄 Session Telegram dipulihkan otomatis.")
+            else:
+                print("⚠️  Session file ada tapi tidak authorized. Perlu login ulang.")
+        except Exception as e:
+            print(f"⚠️  Gagal auto-reconnect Telegram: {e}")
+
 # ─── Routers ──────────────────────────────────────────────
 app.include_router(setup.router)           # /api/setup (publik)
 app.include_router(auth.router, prefix="/api")

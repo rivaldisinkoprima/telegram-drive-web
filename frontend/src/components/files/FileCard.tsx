@@ -1,18 +1,18 @@
 import { type FileItem, useDriveStore } from '@/stores'
 import { filesApi } from '@/api'
 import { useState } from 'react'
-import { Download, Trash2, Film, Music, Image, FileText, Archive, File, Link as LinkIcon, Loader2 } from 'lucide-react'
+import { Download, Trash2, Film, Music, Image as ImageIcon, FileText, Archive, File, Link as LinkIcon, Loader2 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import ShareDialog from './ShareDialog'
 import toast from 'react-hot-toast'
 import { useDownload } from '@/hooks/useDownload'
 
-interface Props { file: FileItem }
+interface Props { file: FileItem; onPreview?: () => void }
 
 function getIcon(mime: string) {
   if (mime.startsWith('video/')) return <Film className="w-8 h-8 text-purple-400" />
   if (mime.startsWith('audio/')) return <Music className="w-8 h-8 text-pink-400" />
-  if (mime.startsWith('image/')) return <Image className="w-8 h-8 text-green-400" />
+  if (mime.startsWith('image/')) return <ImageIcon className="w-8 h-8 text-green-400" />
   if (mime === 'application/pdf') return <FileText className="w-8 h-8 text-red-400" />
   if (mime.includes('zip') || mime.includes('rar') || mime.includes('tar')) return <Archive className="w-8 h-8 text-yellow-400" />
   return <File className="w-8 h-8 text-blue-400" />
@@ -26,7 +26,7 @@ function formatSize(bytes: number) {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 
-export default function FileCard({ file }: Props) {
+export default function FileCard({ file, onPreview }: Props) {
   const { currentFolderId } = useDriveStore()
   const qc = useQueryClient()
   const [hovered, setHovered] = useState(false)
@@ -53,6 +53,7 @@ export default function FileCard({ file }: Props) {
   }
 
   const handleDownload = (e: React.MouseEvent) => {
+    e.stopPropagation()
     if (file.is_encrypted) {
       e.preventDefault()
       const pwd = prompt('File ini terenkripsi E2EE. Masukkan password:')
@@ -66,6 +67,11 @@ export default function FileCard({ file }: Props) {
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onClick={() => {
+        if (!file.is_encrypted && isImage && onPreview) {
+          onPreview()
+        }
+      }}
       className="relative group rounded-xl border border-white/5 hover:border-blue-500/30
         transition-all cursor-pointer overflow-hidden"
       style={{ background: '#161b22' }}
@@ -106,7 +112,7 @@ export default function FileCard({ file }: Props) {
               className="p-2 rounded-lg bg-white/10 hover:bg-blue-600 text-white transition-all">
               {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             </a>
-            {!file.is_encrypted && isMedia && (
+            {!file.is_encrypted && isMedia && !isImage && (
               <a
                 href={filesApi.streamUrl(file.message_id, currentFolderId)}
                 target="_blank" rel="noreferrer"

@@ -82,23 +82,32 @@ async def finish_upload(
         client = await telegram_manager.get_client()
         peer = await _resolve_peer(client, body.folder_id, db=db)
         
+        # Paksa nama file asli agar Telegram tidak menyimpan nama temp file (.part)
+        from telethon.tl.types import DocumentAttributeFilename
+        
         # Telethon otomatis menangani upload file besar
         msg = await client.send_file(
             peer,
             file_path,
             caption="",
             force_document=True,
+            attributes=[DocumentAttributeFilename(file_name=body.file_name)],
         )
         
         os.remove(file_path)
         
+        import mimetypes
+        mime_type, _ = mimetypes.guess_type(body.file_name)
+        if body.is_encrypted or not mime_type:
+            mime_type = "application/octet-stream"
+            
         # Simpan ke FileCache
         fc = FileCache(
             message_id=msg.id,
             folder_id=body.folder_id,
             file_name=body.file_name,
             file_size=body.file_size,
-            mime_type="application/octet-stream" if body.is_encrypted else "application/octet-stream", 
+            mime_type=mime_type, 
             date=msg.date,
             is_encrypted=body.is_encrypted
         )
@@ -306,7 +315,7 @@ async def list_files(
 async def download_file(
     message_id: int,
     folder_id: Optional[int] = Query(default=None),
-    _user=Depends(get_current_user),
+    db: Session = Depends(get_session),
 ):
     """Download file langsung dari Telegram ke browser."""
     try:
@@ -332,6 +341,25 @@ async def download_file(
                     file_name = attr.file_name
                     break
 
+        # Override dengan nama asli dari database jika ada (sangat penting untuk file lama
+        # yang di-upload sebelum fix DocumentAttributeFilename atau file temporary)
+        from sqlmodel import select
+        from models.database import FileCache
+        stmt = select(FileCache).where(FileCache.message_id == message_id)
+        if folder_id:
+            stmt = stmt.where(FileCache.folder_id == folder_id)
+        else:
+            stmt = stmt.where(FileCache.folder_id.is_(None))
+        
+        cached_file = db.exec(stmt).first()
+        if cached_file and cached_file.file_name:
+            file_name = cached_file.file_name
+            mime_type = cached_file.mime_type or mime_type
+
+        # Encode filename untuk Content-Disposition (handle nama file unicode)
+        import urllib.parse
+        encoded_name = urllib.parse.quote(file_name, safe='')
+
         async def stream_generator():
             async for chunk in client.iter_download(msg.media):
                 yield chunk
@@ -340,13 +368,14 @@ async def download_file(
             stream_generator(),
             media_type=mime_type,
             headers={
-                "Content-Disposition": f'attachment; filename="{file_name}"',
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}",
             },
         )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # ─────────────────────────────────────

@@ -14,6 +14,7 @@ import FileCard from '@/components/files/FileCard'
 import FileRow from '@/components/files/FileRow'
 import UploadQueue from '@/components/files/UploadQueue'
 import CreateFolderDialog from '@/components/files/CreateFolderDialog'
+import PreviewModal from '@/components/files/PreviewModal'
 import { useState } from 'react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
@@ -31,6 +32,7 @@ export default function DashboardPage() {
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [e2eEnabled, setE2eEnabled] = useState(false)
   const [e2ePassword, setE2ePassword] = useState('')
+  const [previewFileId, setPreviewFileId] = useState<number | null>(null)
 
   // Load folders
   const { data: foldersData } = useQuery({
@@ -311,7 +313,7 @@ export default function DashboardPage() {
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: i * 0.02 }}>
-                    <FileCard file={file} />
+                    <FileCard file={file} onPreview={() => setPreviewFileId(file.message_id)} />
                   </motion.div>
                 ))}
               </AnimatePresence>
@@ -323,7 +325,7 @@ export default function DashboardPage() {
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.02 }}>
-                  <FileRow file={file} />
+                  <FileRow file={file} onPreview={() => setPreviewFileId(file.message_id)} />
                 </motion.div>
               ))}
             </div>
@@ -336,6 +338,14 @@ export default function DashboardPage() {
 
       {/* Create Folder Dialog */}
       <CreateFolderDialog open={showCreateFolder} onClose={() => setShowCreateFolder(false)} />
+
+      {/* Preview Lightbox */}
+      <PreviewModal
+        files={filteredFiles}
+        currentFolderId={currentFolderId}
+        initialFileId={previewFileId}
+        onClose={() => setPreviewFileId(null)}
+      />
     </div>
   )
 }
