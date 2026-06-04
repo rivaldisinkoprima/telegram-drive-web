@@ -4,7 +4,7 @@ import { useDropzone } from 'react-dropzone'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Folder, File, Upload, Grid3x3, List, Search,
-  Plus, Settings, LogOut, CloudUpload, X, ChevronRight, Trash2
+  Plus, Settings, LogOut, CloudUpload, X, ChevronRight, Trash2, RefreshCw
 } from 'lucide-react'
 import { foldersApi, filesApi, authApi } from '@/api'
 import { useDriveStore, useAuthStore, useUploadStore } from '@/stores'
@@ -41,10 +41,24 @@ export default function DashboardPage() {
   }, [foldersData, setFolders])
 
   // Load files
+  const [isSyncing, setIsSyncing] = useState(false)
   const { data: filesData, isLoading: filesLoading } = useQuery({
     queryKey: ['files', currentFolderId],
-    queryFn: () => filesApi.list(currentFolderId),
+    queryFn: () => filesApi.list(currentFolderId, 0, 50, false),
   })
+
+  const handleSync = async () => {
+    setIsSyncing(true)
+    try {
+      const res = await filesApi.list(currentFolderId, 0, 50, true)
+      qc.setQueryData(['files', currentFolderId], res)
+      toast.success('Sinkronisasi selesai!')
+    } catch (e) {
+      toast.error('Gagal sinkronisasi')
+    } finally {
+      setIsSyncing(false)
+    }
+  }
 
   useEffect(() => {
     if (filesData?.data) setFiles(filesData.data.files)
@@ -225,8 +239,12 @@ export default function DashboardPage() {
               />
             </div>
 
-            {/* View Toggle */}
+            {/* View Toggle & Sync */}
             <div className="flex rounded-xl overflow-hidden border border-white/10">
+              <button onClick={handleSync} disabled={isSyncing} title="Sync dengan Telegram"
+                className="p-2 text-white/40 hover:text-white hover:bg-white/5 transition-all border-r border-white/10">
+                <RefreshCw className={clsx("w-4 h-4", isSyncing && "animate-spin text-blue-400")} />
+              </button>
               <button onClick={() => setViewMode('grid')}
                 className={clsx('p-2 transition-all', viewMode === 'grid' ? 'bg-blue-600 text-white' : 'text-white/40 hover:text-white hover:bg-white/5')}>
                 <Grid3x3 className="w-4 h-4" />

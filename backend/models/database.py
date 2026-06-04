@@ -27,6 +27,20 @@ class FolderCache(SQLModel, table=True):
     is_public: bool = False
 
 
+# --- Tabel File Cache ---
+class FileCache(SQLModel, table=True):
+    message_id: int = Field(primary_key=True)
+    folder_id: Optional[int] = Field(default=None, index=True)
+    file_name: str
+    file_size: int
+    mime_type: str
+    date: datetime
+    has_thumbnail: bool = False
+    duration: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+
 # --- Database Engine ---
 engine = create_engine(
     f"sqlite:///{settings.db_path}",

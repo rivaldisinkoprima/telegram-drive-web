@@ -11,10 +11,12 @@ from fastapi import (
     Query, WebSocket, WebSocketDisconnect,
 )
 from fastapi.responses import StreamingResponse
+from sqlmodel import Session, select
 
 from models.schemas import (
     FileInfo, FileListResponse, FileMoveRequest, FileRenameRequest,
 )
+from models.database import FileCache, get_session
 from services.auth_service import get_current_user
 from services.telegram_client import telegram_manager
 
@@ -100,13 +102,45 @@ async def list_files(
     folder_id: Optional[int] = Query(default=None),
     limit: int = Query(default=50, le=200),
     offset_id: int = Query(default=0),
+    sync: bool = Query(default=False),
+    db: Session = Depends(get_session),
     _user=Depends(get_current_user),
 ):
     """Ambil daftar file dalam folder. Gunakan offset_id untuk pagination."""
     try:
+        # Cek cache lokal
+        if not sync:
+            query = select(FileCache).where(FileCache.folder_id == folder_id).order_by(FileCache.date.desc())
+            if offset_id > 0:
+                query = query.where(FileCache.message_id < offset_id)
+            query = query.limit(limit + 1)
+            
+            cached = db.exec(query).all()
+            if cached:
+                has_more = len(cached) > limit
+                files = cached[:limit]
+                # Convert FileCache to FileInfo
+                file_infos = [
+                    FileInfo(
+                        message_id=f.message_id, folder_id=f.folder_id, file_name=f.file_name,
+                        file_size=f.file_size, mime_type=f.mime_type, date=f.date,
+                        has_thumbnail=f.has_thumbnail, duration=f.duration, width=f.width, height=f.height
+                    ) for f in files
+                ]
+                return FileListResponse(files=file_infos, total=len(file_infos), has_more=has_more)
+
+        # Jika cache kosong atau sync=True, ambil dari Telegram
         client = await telegram_manager.get_client()
         peer = _get_peer(folder_id)
         files = []
+
+        # Bersihkan cache untuk folder ini jika sync
+        if sync:
+            db.exec(select(FileCache).where(FileCache.folder_id == folder_id)).all()
+            old_files = db.exec(select(FileCache).where(FileCache.folder_id == folder_id)).all()
+            for old_file in old_files:
+                db.delete(old_file)
+            db.commit()
 
         kwargs = {"limit": limit + 1}
         if offset_id > 0:
@@ -116,6 +150,17 @@ async def list_files(
             info = _extract_file_info(msg, folder_id)
             if info:
                 files.append(info)
+                # Simpan ke DB (gunakan merge agar tidak error duplikat)
+                fc = FileCache(
+                    message_id=info.message_id, folder_id=info.folder_id, file_name=info.file_name,
+                    file_size=info.file_size, mime_type=info.mime_type, date=info.date,
+                    has_thumbnail=info.has_thumbnail, duration=info.duration, width=info.width, height=info.height
+                )
+                existing = db.exec(select(FileCache).where(FileCache.message_id == fc.message_id)).first()
+                if not existing:
+                    db.add(fc)
+                
+        db.commit()
 
         has_more = len(files) > limit
         if has_more:
@@ -195,6 +240,22 @@ async def upload_file_ws(websocket: WebSocket):
         )
 
         os.unlink(tmp_path)
+        
+        # Simpan ke FileCache
+        try:
+            db_session = next(get_session())
+            fc = FileCache(
+                message_id=msg.id,
+                folder_id=folder_id,
+                file_name=file_name,
+                file_size=file_size,
+                mime_type="application/octet-stream",  # akan lebih baik di-detect
+                date=msg.date
+            )
+            db_session.add(fc)
+            db_session.commit()
+        except Exception:
+            pass
 
         await websocket.send_json({
             "done": True,
@@ -269,6 +330,7 @@ async def download_file(
 async def delete_file(
     message_id: int,
     folder_id: Optional[int] = Query(default=None),
+    db: Session = Depends(get_session),
     _user=Depends(get_current_user),
 ):
     """Hapus file (hapus pesan di Telegram)."""
@@ -276,6 +338,13 @@ async def delete_file(
         client = await telegram_manager.get_client()
         peer = _get_peer(folder_id)
         await client.delete_messages(peer, [message_id])
+        
+        # Hapus dari cache
+        cached = db.exec(select(FileCache).where(FileCache.message_id == message_id)).first()
+        if cached:
+            db.delete(cached)
+            db.commit()
+            
         return {"success": True, "message": "File berhasil dihapus."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -289,6 +358,7 @@ async def rename_file(
     message_id: int,
     body: FileRenameRequest,
     folder_id: Optional[int] = Query(default=None),
+    db: Session = Depends(get_session),
     _user=Depends(get_current_user),
 ):
     """
@@ -301,6 +371,14 @@ async def rename_file(
         peer = _get_peer(folder_id)
 
         await client.edit_message(peer, message_id, text=f"📄 {body.new_name}")
+        
+        # Update cache
+        cached = db.exec(select(FileCache).where(FileCache.message_id == message_id)).first()
+        if cached:
+            cached.file_name = body.new_name
+            db.add(cached)
+            db.commit()
+            
         return {"success": True, "new_name": body.new_name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -314,6 +392,7 @@ async def move_file(
     message_id: int,
     body: FileMoveRequest,
     folder_id: Optional[int] = Query(default=None),
+    db: Session = Depends(get_session),
     _user=Depends(get_current_user),
 ):
     """Pindahkan file ke folder lain dengan cara forward + delete."""
@@ -328,10 +407,30 @@ async def move_file(
             raise HTTPException(status_code=404, detail="Pesan tidak ditemukan.")
 
         # Forward ke tujuan
-        await client.forward_messages(dst_peer, msg)
+        fwd_msg = await client.forward_messages(dst_peer, msg)
+        new_msg_id = fwd_msg[0].id if isinstance(fwd_msg, list) else fwd_msg.id
 
         # Hapus dari sumber
         await client.delete_messages(src_peer, [message_id])
+        
+        # Update cache (hapus yang lama, buat yang baru)
+        cached = db.exec(select(FileCache).where(FileCache.message_id == message_id)).first()
+        if cached:
+            new_cache = FileCache(
+                message_id=new_msg_id,
+                folder_id=body.target_folder_id,
+                file_name=cached.file_name,
+                file_size=cached.file_size,
+                mime_type=cached.mime_type,
+                date=cached.date,
+                has_thumbnail=cached.has_thumbnail,
+                duration=cached.duration,
+                width=cached.width,
+                height=cached.height
+            )
+            db.delete(cached)
+            db.add(new_cache)
+            db.commit()
 
         return {"success": True, "message": "File berhasil dipindahkan."}
     except HTTPException:

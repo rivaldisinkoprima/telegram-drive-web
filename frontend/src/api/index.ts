@@ -74,8 +74,8 @@ export const foldersApi = {
 
 // ─── Files ────────────────────────────────────────────────
 export const filesApi = {
-  list: (folderId?: number | null, offsetId = 0, limit = 50) =>
-    api.get('/files', { params: { folder_id: folderId, offset_id: offsetId, limit } }),
+  list: (folderId?: number | null, offsetId = 0, limit = 50, sync = false) =>
+    api.get('/files', { params: { folder_id: folderId, offset_id: offsetId, limit, sync } }),
 
   delete: (messageId: number, folderId?: number | null) =>
     api.delete(`/files/${messageId}`, { params: { folder_id: folderId } }),
