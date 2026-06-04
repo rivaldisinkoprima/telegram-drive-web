@@ -4,13 +4,15 @@ Files Router — Upload, Download, List, Delete, Rename, Move file
 import os
 import tempfile
 import uuid
+import hashlib
 from typing import Optional
 
 from fastapi import (
     APIRouter, Depends, HTTPException,
-    Query, WebSocket, WebSocketDisconnect,
+    Query, Request,
 )
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from models.schemas import (
@@ -24,6 +26,89 @@ router = APIRouter(prefix="/files", tags=["Files"])
 
 # Simpan transfer yang sedang berjalan agar bisa dibatalkan
 _active_transfers: dict[str, bool] = {}  # transfer_id -> cancelled
+
+# ─────────────────────────────────────
+# RESUME-ABLE CHUNKED UPLOAD API
+# ─────────────────────────────────────
+UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "telegram_drive_uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+class UploadInitRequest(BaseModel):
+    file_name: str
+    file_size: int
+    folder_id: Optional[int] = None
+
+@router.post("/upload/init")
+async def init_upload(body: UploadInitRequest, _user=Depends(get_current_user)):
+    """Inisialisasi upload dan kembalikan byte yang sudah terunggah (jika ada)."""
+    file_id = hashlib.md5(f"{body.file_name}_{body.file_size}_{_user.id}".encode()).hexdigest()
+    file_path = os.path.join(UPLOAD_DIR, f"{file_id}.part")
+    
+    uploaded_bytes = 0
+    if os.path.exists(file_path):
+        uploaded_bytes = os.path.getsize(file_path)
+        if uploaded_bytes > body.file_size:
+            os.remove(file_path)
+            uploaded_bytes = 0
+            
+    return {"upload_id": file_id, "uploaded_bytes": uploaded_bytes}
+
+@router.post("/upload/{upload_id}/chunk")
+async def upload_chunk(upload_id: str, request: Request, _user=Depends(get_current_user)):
+    """Terima potongan byte dari frontend dan append ke file part."""
+    file_path = os.path.join(UPLOAD_DIR, f"{upload_id}.part")
+    chunk_data = await request.body()
+    
+    with open(file_path, "ab") as f:
+        f.write(chunk_data)
+        
+    return {"success": True, "uploaded_bytes": os.path.getsize(file_path)}
+
+@router.post("/upload/{upload_id}/finish")
+async def finish_upload(
+    upload_id: str, 
+    body: UploadInitRequest, 
+    db: Session = Depends(get_session), 
+    _user=Depends(get_current_user)
+):
+    """Picu pengunggahan ke Telegram setelah semua chunk diterima."""
+    file_path = os.path.join(UPLOAD_DIR, f"{upload_id}.part")
+    if not os.path.exists(file_path):
+        raise HTTPException(404, "File part tidak ditemukan. Mulai ulang upload.")
+        
+    try:
+        client = await telegram_manager.get_client()
+        peer = _get_peer(body.folder_id)
+        
+        # Telethon otomatis menangani upload file besar
+        msg = await client.send_file(
+            peer,
+            file_path,
+            caption="",
+            force_document=True,
+        )
+        
+        os.remove(file_path)
+        
+        # Simpan ke FileCache
+        fc = FileCache(
+            message_id=msg.id,
+            folder_id=body.folder_id,
+            file_name=body.file_name,
+            file_size=body.file_size,
+            mime_type="application/octet-stream", 
+            date=msg.date
+        )
+        db.add(fc)
+        db.commit()
+
+        return {
+            "done": True,
+            "message_id": msg.id,
+            "file_name": body.file_name,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def _get_peer(folder_id: Optional[int]):
@@ -171,109 +256,7 @@ async def list_files(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─────────────────────────────────────
-# UPLOAD FILE (via WebSocket for progress)
-# ─────────────────────────────────────
-@router.websocket("/ws/upload")
-async def upload_file_ws(websocket: WebSocket):
-    """
-    WebSocket upload endpoint dengan progress real-time.
-    Protokol:
-      Client → Server: JSON metadata { "folder_id": int|null, "file_name": str, "file_size": int }
-      Client → Server: binary chunks of file data
-      Server → Client: JSON progress { "percent": int, "uploaded": int, "total": int, "speed": int }
-      Server → Client: JSON done { "done": true, "message_id": int } | { "error": str }
-    """
-    await websocket.accept()
 
-    try:
-        # Terima metadata
-        meta = await websocket.receive_json()
-        folder_id = meta.get("folder_id")
-        file_name = meta.get("file_name", "upload")
-        file_size = meta.get("file_size", 0)
-
-        client = await telegram_manager.get_client()
-
-        # Simpan ke temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file_name}") as tmp:
-            tmp_path = tmp.name
-            received = 0
-
-            while received < file_size:
-                chunk = await websocket.receive_bytes()
-                tmp.write(chunk)
-                received += len(chunk)
-
-                pct = int(received / file_size * 100) if file_size else 0
-                await websocket.send_json({
-                    "percent": min(pct, 99),
-                    "uploaded": received,
-                    "total": file_size,
-                    "speed": 0,
-                })
-
-        # Upload ke Telegram
-        uploaded_bytes = 0
-
-        async def progress_cb(current, total):
-            nonlocal uploaded_bytes
-            uploaded_bytes = current
-            pct = int(current / total * 100) if total else 0
-            try:
-                await websocket.send_json({
-                    "percent": min(pct, 99),
-                    "uploaded": current,
-                    "total": total,
-                    "speed": 0,
-                })
-            except Exception:
-                pass
-
-        peer = _get_peer(folder_id)
-        msg = await client.send_file(
-            peer,
-            tmp_path,
-            caption="",
-            force_document=True,
-            progress_callback=progress_cb,
-        )
-
-        os.unlink(tmp_path)
-        
-        # Simpan ke FileCache
-        try:
-            db_session = next(get_session())
-            fc = FileCache(
-                message_id=msg.id,
-                folder_id=folder_id,
-                file_name=file_name,
-                file_size=file_size,
-                mime_type="application/octet-stream",  # akan lebih baik di-detect
-                date=msg.date
-            )
-            db_session.add(fc)
-            db_session.commit()
-        except Exception:
-            pass
-
-        await websocket.send_json({
-            "done": True,
-            "percent": 100,
-            "message_id": msg.id,
-            "file_name": file_name,
-        })
-
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        try:
-            await websocket.send_json({"error": str(e)})
-        except Exception:
-            pass
-
-
-# ─────────────────────────────────────
 # DOWNLOAD FILE
 # ─────────────────────────────────────
 @router.get("/{message_id}/download")

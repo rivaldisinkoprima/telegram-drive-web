@@ -83,8 +83,17 @@ export const filesApi = {
   rename: (messageId: number, newName: string, folderId?: number | null) =>
     api.patch(`/files/${messageId}`, { new_name: newName }, { params: { folder_id: folderId } }),
 
-  move: (messageId: number, targetFolderId: number | null, folderId?: number | null) =>
+  move: (messageId: number, targetFolderId?: number | null, folderId?: number | null) =>
     api.post(`/files/${messageId}/move`, { target_folder_id: targetFolderId }, { params: { folder_id: folderId } }),
+    
+  uploadInit: (fileName: string, fileSize: number, folderId?: number | null) =>
+    api.post('/files/upload/init', { file_name: fileName, file_size: fileSize, folder_id: folderId }),
+    
+  uploadChunk: (uploadId: string, chunk: ArrayBuffer) =>
+    api.post(`/files/upload/${uploadId}/chunk`, chunk, { headers: { 'Content-Type': 'application/octet-stream' } }),
+    
+  uploadFinish: (uploadId: string, fileName: string, fileSize: number, folderId?: number | null) =>
+    api.post(`/files/upload/${uploadId}/finish`, { file_name: fileName, file_size: fileSize, folder_id: folderId }),
 
   downloadUrl: (messageId: number, folderId?: number | null) => {
     const params = folderId ? `?folder_id=${folderId}` : ''

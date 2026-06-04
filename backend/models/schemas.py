@@ -54,6 +54,7 @@ class UserInfo(BaseModel):
     last_name: Optional[str] = None
     username: Optional[str] = None
     phone: Optional[str] = None
+    is_premium: bool = False
 
 
 # =====================

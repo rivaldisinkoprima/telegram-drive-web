@@ -128,6 +128,7 @@ async def get_me(_user=Depends(get_current_user)):
             last_name=me.last_name,
             username=me.username,
             phone=me.phone,
+            is_premium=getattr(me, 'premium', False),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

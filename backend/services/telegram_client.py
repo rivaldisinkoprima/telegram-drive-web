@@ -67,6 +67,10 @@ class TelegramClientManager:
             session_path,
             api_id,
             api_hash,
+            request_retries=10,
+            connection_retries=10,
+            retry_delay=5,
+            flood_sleep_threshold=3600, # 1 hour
             **proxy_kwargs,
         )
 
