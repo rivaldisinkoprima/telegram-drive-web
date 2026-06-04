@@ -78,9 +78,9 @@ export default function FileCard({ file }: Props) {
             E2EE
           </div>
         )}
-        {file.has_thumbnail ? (
+        {!file.is_encrypted && (file.has_thumbnail || isImage) ? (
           <img
-            src={filesApi.previewUrl(file.message_id, currentFolderId)}
+            src={file.has_thumbnail ? filesApi.previewUrl(file.message_id, currentFolderId) : filesApi.streamUrl(file.message_id, currentFolderId)}
             alt={file.file_name}
             className="w-full h-full object-cover"
             loading="lazy"

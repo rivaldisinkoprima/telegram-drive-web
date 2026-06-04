@@ -8,6 +8,9 @@ from fastapi.responses import StreamingResponse, Response
 
 from services.auth_service import get_current_user
 from services.telegram_client import telegram_manager
+from models.database import get_session
+from sqlmodel import Session
+from routers.files import _resolve_peer
 
 router = APIRouter(prefix="/stream", tags=["Streaming"])
 
@@ -33,6 +36,7 @@ async def stream_file(
     message_id: int,
     request: Request,
     folder_id: Optional[int] = Query(default=None),
+    db: Session = Depends(get_session),
 ):
     """
     Stream file media (video/audio/gambar) dengan dukungan Range Request.
@@ -41,7 +45,7 @@ async def stream_file(
     """
     try:
         client = await telegram_manager.get_client()
-        peer = folder_id if folder_id else "me"
+        peer = await _resolve_peer(client, folder_id, db=db)
 
         messages = await client.get_messages(peer, ids=message_id)
         msg = messages if not isinstance(messages, list) else (messages[0] if messages else None)
@@ -124,6 +128,7 @@ async def stream_file(
 async def preview_file(
     message_id: int,
     folder_id: Optional[int] = Query(default=None),
+    db: Session = Depends(get_session),
 ):
     """
     Ambil thumbnail/preview gambar dari file.
@@ -131,7 +136,7 @@ async def preview_file(
     """
     try:
         client = await telegram_manager.get_client()
-        peer = folder_id if folder_id else "me"
+        peer = await _resolve_peer(client, folder_id, db=db)
 
         messages = await client.get_messages(peer, ids=message_id)
         msg = messages if not isinstance(messages, list) else (messages[0] if messages else None)

@@ -4,7 +4,7 @@ JWT Authentication Utilities
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
-from fastapi import HTTPException, status, Cookie
+from fastapi import HTTPException, status, Cookie, Response
 from config import settings
 
 
@@ -18,6 +18,18 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     )
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
+
+
+def set_auth_cookie(response: Response, token: str):
+    expire_dt = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=settings.access_token_expire_minutes * 60,
+        expires=expire_dt,
+    )
 
 
 def verify_token(token: str) -> dict:

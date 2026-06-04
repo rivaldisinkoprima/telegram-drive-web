@@ -7,7 +7,7 @@ from models.schemas import (
     QRLoginRequest, AuthResult, UserInfo,
 )
 from services.telegram_client import telegram_manager
-from services.auth_service import create_access_token, get_current_user
+from services.auth_service import create_access_token, get_current_user, set_auth_cookie
 from routers.setup import get_stored_telegram_config
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -49,13 +49,7 @@ async def sign_in(body: SignInRequest, response: Response):
         result = await telegram_manager.sign_in(body.code)
         if result["success"]:
             token = create_access_token({"sub": "telegram_user"})
-            response.set_cookie(
-                key="access_token",
-                value=token,
-                httponly=True,
-                samesite="lax",
-                max_age=60 * 60 * 24 * 7,  # 7 hari
-            )
+            set_auth_cookie(response, token)
         return AuthResult(**result)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -68,13 +62,7 @@ async def check_password(body: CheckPasswordRequest, response: Response):
         result = await telegram_manager.check_password(body.password)
         if result["success"]:
             token = create_access_token({"sub": "telegram_user"})
-            response.set_cookie(
-                key="access_token",
-                value=token,
-                httponly=True,
-                samesite="lax",
-                max_age=60 * 60 * 24 * 7,
-            )
+            set_auth_cookie(response, token)
         return AuthResult(**result)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -99,13 +87,7 @@ async def poll_qr(response: Response):
     result = await telegram_manager.poll_qr()
     if result["success"]:
         token = create_access_token({"sub": "telegram_user"})
-        response.set_cookie(
-            key="access_token",
-            value=token,
-            httponly=True,
-            samesite="lax",
-            max_age=60 * 60 * 24 * 7,
-        )
+        set_auth_cookie(response, token)
     return AuthResult(**result)
 
 
