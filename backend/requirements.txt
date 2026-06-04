@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+telethon
+python-dotenv
+pydantic
+pydantic-settings
+sqlmodel
+python-jose[cryptography]
+passlib[bcrypt]
+aiofiles
+python-multipart
+websockets
+pillow

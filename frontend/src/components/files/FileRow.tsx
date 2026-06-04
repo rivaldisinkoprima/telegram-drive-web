@@ -1,0 +1,80 @@
+import { type FileItem, useDriveStore } from '@/stores'
+import { filesApi } from '@/api'
+import { Download, Trash2, Film, Music, Image, FileText, Archive, File } from 'lucide-react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { format } from 'date-fns'
+
+interface Props { file: FileItem }
+
+function getIcon(mime: string) {
+  if (mime.startsWith('video/')) return <Film className="w-4 h-4 text-purple-400" />
+  if (mime.startsWith('audio/')) return <Music className="w-4 h-4 text-pink-400" />
+  if (mime.startsWith('image/')) return <Image className="w-4 h-4 text-green-400" />
+  if (mime === 'application/pdf') return <FileText className="w-4 h-4 text-red-400" />
+  if (mime.includes('zip') || mime.includes('rar')) return <Archive className="w-4 h-4 text-yellow-400" />
+  return <File className="w-4 h-4 text-blue-400" />
+}
+
+function formatSize(bytes: number) {
+  if (bytes === 0) return '—'
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+export default function FileRow({ file }: Props) {
+  const { currentFolderId } = useDriveStore()
+  const qc = useQueryClient()
+
+  const deleteMut = useMutation({
+    mutationFn: () => filesApi.delete(file.message_id, currentFolderId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['files', currentFolderId] }),
+  })
+
+  const isMedia = file.mime_type.startsWith('video/') || file.mime_type.startsWith('audio/') || file.mime_type.startsWith('image/')
+
+  return (
+    <div className="flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-white/3 group transition-all">
+      {/* Icon */}
+      <div className="w-8 h-8 flex items-center justify-center rounded-lg flex-shrink-0"
+        style={{ background: '#21262d' }}>
+        {getIcon(file.mime_type)}
+      </div>
+
+      {/* Name */}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-white/90 font-medium truncate">{file.file_name}</p>
+      </div>
+
+      {/* Size */}
+      <div className="w-20 text-right">
+        <span className="text-xs text-white/30">{formatSize(file.file_size)}</span>
+      </div>
+
+      {/* Date */}
+      <div className="w-32 text-right hidden md:block">
+        <span className="text-xs text-white/30">
+          {format(new Date(file.date), 'dd MMM yyyy')}
+        </span>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <a href={filesApi.downloadUrl(file.message_id, currentFolderId)} download={file.file_name}
+          className="p-1.5 rounded-lg hover:bg-blue-600/20 text-white/40 hover:text-blue-400 transition-all">
+          <Download className="w-3.5 h-3.5" />
+        </a>
+        {isMedia && (
+          <a href={filesApi.streamUrl(file.message_id, currentFolderId)} target="_blank" rel="noreferrer"
+            className="p-1.5 rounded-lg hover:bg-purple-600/20 text-white/40 hover:text-purple-400 transition-all">
+            <Film className="w-3.5 h-3.5" />
+          </a>
+        )}
+        <button onClick={() => deleteMut.mutate()}
+          className="p-1.5 rounded-lg hover:bg-red-600/20 text-white/40 hover:text-red-400 transition-all">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
