@@ -138,6 +138,7 @@ def _extract_file_info(message, folder_id: Optional[int]) -> Optional[FileInfo]:
         
         for attr in doc.attributes:
             from telethon.tl.types import DocumentAttributeVideo, DocumentAttributeAudio
+            if isinstance(attr, DocumentAttributeVideo):
                 return FileInfo(
                     message_id=message.id,
                     folder_id=folder_id,
