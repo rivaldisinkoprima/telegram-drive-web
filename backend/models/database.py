@@ -39,6 +39,7 @@ class FileCache(SQLModel, table=True):
     duration: Optional[int] = None
     width: Optional[int] = None
     height: Optional[int] = None
+    is_encrypted: bool = False
 
 
 # --- Database Engine ---

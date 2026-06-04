@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { useUploadStore, useDriveStore, useAuthStore } from '@/stores'
 import { filesApi } from '@/api'
 import { useQueryClient } from '@tanstack/react-query'
+import { deriveKey, encryptChunk } from '@/utils/crypto'
 
 export function useUpload() {
   const { addTask, updateTask } = useUploadStore()
@@ -9,7 +10,7 @@ export function useUpload() {
   const { user } = useAuthStore()
   const qc = useQueryClient()
 
-  const uploadFile = useCallback(async (file: File) => {
+  const uploadFile = useCallback(async (file: File, password?: string) => {
     // 1. Cek Limit Ukuran File
     const isPremium = user?.is_premium || false
     const maxSize = isPremium ? 4 * 1024 * 1024 * 1024 : 2 * 1024 * 1024 * 1024 // 4GB or 2GB
@@ -17,10 +18,13 @@ export function useUpload() {
       throw new Error(`Ukuran file melebihi batas maksimal (${isPremium ? '4GB' : '2GB'}).`)
     }
 
+    const isEncrypted = !!password
+    const finalFileName = isEncrypted ? `${file.name}.enc` : file.name
+
     const id = crypto.randomUUID()
     addTask({
       id,
-      fileName: file.name,
+      fileName: finalFileName,
       fileSize: file.size,
       percent: 0,
       uploaded: 0,
@@ -30,7 +34,7 @@ export function useUpload() {
 
     try {
       // 2. Init Upload (Resume capability)
-      const initRes = await filesApi.uploadInit(file.name, file.size, currentFolderId ?? null)
+      const initRes = await filesApi.uploadInit(finalFileName, file.size, currentFolderId ?? null, isEncrypted)
       const uploadId = initRes.data.upload_id
       let offset = initRes.data.uploaded_bytes || 0
 
@@ -46,20 +50,47 @@ export function useUpload() {
       const CHUNK_SIZE = 1024 * 1024 
       let lastTime = Date.now()
       let lastOffset = offset
+      
+      let aesKey: CryptoKey | null = null
+      let salt: Uint8Array | null = null
+      if (password) {
+        salt = window.crypto.getRandomValues(new Uint8Array(16))
+        aesKey = await deriveKey(password, salt)
+      }
 
       while (offset < file.size) {
-        // Cek apakah di-cancel (opsional, untuk kedepannya jika ada fitur cancel)
+        // Cek apakah di-cancel
         const currentTask = useUploadStore.getState().tasks.find(t => t.id === id)
-        if (currentTask?.status === 'error') {
-          throw new Error('Upload dibatalkan.')
-        }
+        if (currentTask?.status === 'error') throw new Error('Upload dibatalkan.')
 
         const slice = file.slice(offset, offset + CHUNK_SIZE)
-        const buffer = await slice.arrayBuffer()
+        const rawBuffer = await slice.arrayBuffer()
         
-        await filesApi.uploadChunk(uploadId, buffer)
+        let chunkData: ArrayBuffer = rawBuffer
         
-        offset += buffer.byteLength
+        if (aesKey && salt) {
+          const { encrypted, iv } = await encryptChunk(rawBuffer, aesKey)
+          const isFirst = offset === 0
+          
+          // Format: [Salt 16b (if first)] + [IV 12b] + [Encrypted]
+          const totalLen = (isFirst ? 16 : 0) + 12 + encrypted.byteLength
+          const combined = new Uint8Array(totalLen)
+          
+          let p = 0
+          if (isFirst) {
+            combined.set(salt, p)
+            p += 16
+          }
+          combined.set(iv, p)
+          p += 12
+          combined.set(new Uint8Array(encrypted), p)
+          
+          chunkData = combined.buffer
+        }
+        
+        await filesApi.uploadChunk(uploadId, chunkData)
+        
+        offset += rawBuffer.byteLength
         
         // Hitung kecepatan
         const now = Date.now()
@@ -80,7 +111,7 @@ export function useUpload() {
 
       // 4. Finish Upload
       updateTask(id, { status: 'pending', percent: 100 }) // Pending saat mengirim ke Telegram
-      const finishRes = await filesApi.uploadFinish(uploadId, file.name, file.size, currentFolderId ?? null)
+      await filesApi.uploadFinish(uploadId, finalFileName, file.size, currentFolderId ?? null, isEncrypted)
       
       // Update Cache UI 
       qc.invalidateQueries({ queryKey: ['files', currentFolderId] })

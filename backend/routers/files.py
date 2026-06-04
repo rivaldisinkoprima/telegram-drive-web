@@ -37,6 +37,7 @@ class UploadInitRequest(BaseModel):
     file_name: str
     file_size: int
     folder_id: Optional[int] = None
+    is_encrypted: bool = False
 
 @router.post("/upload/init")
 async def init_upload(body: UploadInitRequest, _user=Depends(get_current_user)):
@@ -96,8 +97,9 @@ async def finish_upload(
             folder_id=body.folder_id,
             file_name=body.file_name,
             file_size=body.file_size,
-            mime_type="application/octet-stream", 
-            date=msg.date
+            mime_type="application/octet-stream" if body.is_encrypted else "application/octet-stream", 
+            date=msg.date,
+            is_encrypted=body.is_encrypted
         )
         db.add(fc)
         db.commit()
@@ -131,7 +133,11 @@ def _extract_file_info(message, folder_id: Optional[int]) -> Optional[FileInfo]:
             from telethon.tl.types import DocumentAttributeFilename, DocumentAttributeVideo, DocumentAttributeAudio
             if isinstance(attr, DocumentAttributeFilename):
                 file_name = attr.file_name
-            elif isinstance(attr, DocumentAttributeVideo):
+                
+        is_encrypted = file_name.endswith('.enc')
+        
+        for attr in doc.attributes:
+            from telethon.tl.types import DocumentAttributeVideo, DocumentAttributeAudio
                 return FileInfo(
                     message_id=message.id,
                     folder_id=folder_id,
@@ -143,6 +149,7 @@ def _extract_file_info(message, folder_id: Optional[int]) -> Optional[FileInfo]:
                     duration=getattr(attr, "duration", None),
                     width=getattr(attr, "w", None),
                     height=getattr(attr, "h", None),
+                    is_encrypted=is_encrypted,
                 )
             elif isinstance(attr, DocumentAttributeAudio):
                 return FileInfo(
@@ -154,6 +161,7 @@ def _extract_file_info(message, folder_id: Optional[int]) -> Optional[FileInfo]:
                     date=message.date,
                     has_thumbnail=False,
                     duration=getattr(attr, "duration", None),
+                    is_encrypted=is_encrypted,
                 )
         return FileInfo(
             message_id=message.id,
@@ -163,6 +171,7 @@ def _extract_file_info(message, folder_id: Optional[int]) -> Optional[FileInfo]:
             mime_type=mime_type,
             date=message.date,
             has_thumbnail=bool(doc.thumbs),
+            is_encrypted=is_encrypted,
         )
 
     elif photo:
@@ -209,7 +218,8 @@ async def list_files(
                     FileInfo(
                         message_id=f.message_id, folder_id=f.folder_id, file_name=f.file_name,
                         file_size=f.file_size, mime_type=f.mime_type, date=f.date,
-                        has_thumbnail=f.has_thumbnail, duration=f.duration, width=f.width, height=f.height
+                        has_thumbnail=f.has_thumbnail, duration=f.duration, width=f.width, height=f.height,
+                        is_encrypted=f.is_encrypted
                     ) for f in files
                 ]
                 return FileListResponse(files=file_infos, total=len(file_infos), has_more=has_more)
@@ -239,7 +249,8 @@ async def list_files(
                 fc = FileCache(
                     message_id=info.message_id, folder_id=info.folder_id, file_name=info.file_name,
                     file_size=info.file_size, mime_type=info.mime_type, date=info.date,
-                    has_thumbnail=info.has_thumbnail, duration=info.duration, width=info.width, height=info.height
+                    has_thumbnail=info.has_thumbnail, duration=info.duration, width=info.width, height=info.height,
+                    is_encrypted=info.is_encrypted
                 )
                 existing = db.exec(select(FileCache).where(FileCache.message_id == fc.message_id)).first()
                 if not existing:

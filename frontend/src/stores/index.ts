@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
 // ─── Auth Store ──────────────────────────────────────────
 interface User {
@@ -7,23 +8,47 @@ interface User {
   last_name?: string
   username?: string
   phone?: string
+  is_premium?: boolean
 }
 
 interface AuthStore {
   user: User | null
   isAuthenticated: boolean
+  
+  // Security
+  pin: string | null
+  isLocked: boolean
+  
   setUser: (u: User | null) => void
   setAuthenticated: (v: boolean) => void
   reset: () => void
+  
+  setPin: (pin: string | null) => void
+  lock: () => void
+  unlock: () => void
 }
 
-export const useAuthStore = create<AuthStore>((set) => ({
-  user: null,
-  isAuthenticated: false,
-  setUser: (user) => set({ user, isAuthenticated: !!user }),
-  setAuthenticated: (isAuthenticated) => set({ isAuthenticated }),
-  reset: () => set({ user: null, isAuthenticated: false }),
-}))
+export const useAuthStore = create<AuthStore>()(
+  persist(
+    (set) => ({
+      user: null,
+      isAuthenticated: false,
+      pin: null,
+      isLocked: false,
+      
+      setUser: (user) => set({ user, isAuthenticated: !!user }),
+      setAuthenticated: (isAuthenticated) => set({ isAuthenticated }),
+      reset: () => set({ user: null, isAuthenticated: false, pin: null, isLocked: false }),
+      
+      setPin: (pin) => set({ pin }),
+      lock: () => set({ isLocked: true }),
+      unlock: () => set({ isLocked: false }),
+    }),
+    {
+      name: 'auth-storage',
+    }
+  )
+)
 
 
 // ─── Drive Store ─────────────────────────────────────────
@@ -45,6 +70,7 @@ export interface FileItem {
   duration?: number
   width?: number
   height?: number
+  is_encrypted?: boolean
 }
 
 type ViewMode = 'grid' | 'list'

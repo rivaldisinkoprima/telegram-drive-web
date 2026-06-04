@@ -6,6 +6,7 @@ import { useState } from 'react'
 import ShareDialog from './ShareDialog'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
+import { useDownload } from '@/hooks/useDownload'
 
 interface Props { file: FileItem }
 
@@ -29,6 +30,7 @@ export default function FileRow({ file }: Props) {
   const { currentFolderId } = useDriveStore()
   const qc = useQueryClient()
   const [shareOpen, setShareOpen] = useState(false)
+  const { downloadEncryptedFile, isDownloading, downloadProgress } = useDownload()
 
   const deleteMut = useMutation({
     mutationFn: () => filesApi.delete(file.message_id, currentFolderId),
@@ -43,7 +45,18 @@ export default function FileRow({ file }: Props) {
     })
   }
 
+  const handleDownload = (e: React.MouseEvent) => {
+    if (file.is_encrypted) {
+      e.preventDefault()
+      const pwd = prompt('File ini terenkripsi E2EE. Masukkan password:')
+      if (pwd) {
+        downloadEncryptedFile(file.message_id, currentFolderId, file.file_name, pwd)
+      }
+    }
+  }
+
   const isMedia = file.mime_type.startsWith('video/') || file.mime_type.startsWith('audio/') || file.mime_type.startsWith('image/')
+
 
   return (
     <div className="flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-white/3 group transition-all">
@@ -54,8 +67,11 @@ export default function FileRow({ file }: Props) {
       </div>
 
       {/* Name */}
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-white/90 font-medium truncate">{file.file_name}</p>
+      <div className="flex-1 min-w-0 flex items-center gap-2">
+        {file.is_encrypted && <div className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[10px] font-bold">E2EE</div>}
+        <p className="text-sm text-white/90 font-medium truncate">
+          {file.is_encrypted ? file.file_name.replace('.enc', '') : file.file_name}
+        </p>
       </div>
 
       {/* Size */}
@@ -76,11 +92,14 @@ export default function FileRow({ file }: Props) {
           className="p-1.5 rounded-lg hover:bg-blue-600/20 text-white/40 hover:text-blue-400 transition-all">
           <LinkIcon className="w-3.5 h-3.5" />
         </button>
-        <a href={filesApi.downloadUrl(file.message_id, currentFolderId)} download={file.file_name}
+        <a 
+          href={file.is_encrypted ? '#' : filesApi.downloadUrl(file.message_id, currentFolderId)} 
+          download={!file.is_encrypted ? file.file_name : undefined}
+          onClick={handleDownload}
           className="p-1.5 rounded-lg hover:bg-blue-600/20 text-white/40 hover:text-blue-400 transition-all">
           <Download className="w-3.5 h-3.5" />
         </a>
-        {isMedia && (
+        {!file.is_encrypted && isMedia && (
           <a href={filesApi.streamUrl(file.message_id, currentFolderId)} target="_blank" rel="noreferrer"
             className="p-1.5 rounded-lg hover:bg-purple-600/20 text-white/40 hover:text-purple-400 transition-all">
             <Film className="w-3.5 h-3.5" />

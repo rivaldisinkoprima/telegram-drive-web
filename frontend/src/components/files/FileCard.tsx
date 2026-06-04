@@ -1,10 +1,11 @@
 import { type FileItem, useDriveStore } from '@/stores'
 import { filesApi } from '@/api'
 import { useState } from 'react'
-import { Download, Trash2, Film, Music, Image, FileText, Archive, File, Link as LinkIcon } from 'lucide-react'
+import { Download, Trash2, Film, Music, Image, FileText, Archive, File, Link as LinkIcon, Loader2 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import ShareDialog from './ShareDialog'
 import toast from 'react-hot-toast'
+import { useDownload } from '@/hooks/useDownload'
 
 interface Props { file: FileItem }
 
@@ -30,9 +31,12 @@ export default function FileCard({ file }: Props) {
   const qc = useQueryClient()
   const [hovered, setHovered] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  const { downloadEncryptedFile, isDownloading } = useDownload()
+
   const isImage = file.mime_type.startsWith('image/')
   const isVideo = file.mime_type.startsWith('video/')
   const isAudio = file.mime_type.startsWith('audio/')
+  const isMedia = isImage || isVideo || isAudio
 
   const deleteMut = useMutation({
     mutationFn: () => filesApi.delete(file.message_id, currentFolderId),
@@ -47,6 +51,16 @@ export default function FileCard({ file }: Props) {
     })
   }
 
+  const handleDownload = (e: React.MouseEvent) => {
+    if (file.is_encrypted) {
+      e.preventDefault()
+      const pwd = prompt('File ini terenkripsi E2EE. Masukkan password:')
+      if (pwd) {
+        downloadEncryptedFile(file.message_id, currentFolderId, file.file_name, pwd)
+      }
+    }
+  }
+
   return (
     <div
       onMouseEnter={() => setHovered(true)}
@@ -58,6 +72,11 @@ export default function FileCard({ file }: Props) {
       {/* Thumbnail / Icon */}
       <div className="aspect-square flex items-center justify-center relative overflow-hidden"
         style={{ background: '#21262d' }}>
+        {file.is_encrypted && (
+          <div className="absolute top-2 left-2 z-10 px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[10px] font-bold">
+            E2EE
+          </div>
+        )}
         {file.has_thumbnail ? (
           <img
             src={filesApi.previewUrl(file.message_id, currentFolderId)}
@@ -80,13 +99,13 @@ export default function FileCard({ file }: Props) {
               <LinkIcon className="w-4 h-4" />
             </button>
             <a
-              href={filesApi.downloadUrl(file.message_id, currentFolderId)}
-              download={file.file_name}
-              className="p-2 rounded-lg bg-white/10 hover:bg-blue-600 text-white transition-all"
-              onClick={(e) => e.stopPropagation()}>
-              <Download className="w-4 h-4" />
+              href={file.is_encrypted ? '#' : filesApi.downloadUrl(file.message_id, currentFolderId)}
+              download={!file.is_encrypted ? file.file_name : undefined}
+              onClick={handleDownload}
+              className="p-2 rounded-lg bg-white/10 hover:bg-blue-600 text-white transition-all">
+              {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             </a>
-            {(isVideo || isAudio || isImage) && (
+            {!file.is_encrypted && isMedia && (
               <a
                 href={filesApi.streamUrl(file.message_id, currentFolderId)}
                 target="_blank" rel="noreferrer"
@@ -107,7 +126,7 @@ export default function FileCard({ file }: Props) {
       {/* File info */}
       <div className="p-2.5">
         <p className="text-xs text-white/80 font-medium truncate" title={file.file_name}>
-          {file.file_name}
+          {file.is_encrypted ? file.file_name.replace('.enc', '') : file.file_name}
         </p>
         <p className="text-xs text-white/30 mt-0.5">{formatSize(file.file_size)}</p>
       </div>

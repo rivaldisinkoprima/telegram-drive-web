@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { settingsApi, sharingApi, setupApi } from '@/api'
-import { ArrowLeft, Shield, Wifi, Key, Link, Trash2, Eye, EyeOff, Copy, Check, Cpu, RotateCcw } from 'lucide-react'
+import { ArrowLeft, Shield, Wifi, Key, Link, Trash2, Eye, EyeOff, Copy, Check, Cpu, RotateCcw, Lock } from 'lucide-react'
 import { motion } from 'framer-motion'
 
-type Tab = 'telegram' | 'proxy' | 'network' | 'apikey' | 'shares'
+type Tab = 'telegram' | 'proxy' | 'network' | 'apikey' | 'shares' | 'security'
 
 export default function SettingsPage() {
   const navigate = useNavigate()
@@ -13,6 +13,8 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('telegram')
   const [copied, setCopied] = useState(false)
   const [showKey, setShowKey] = useState(false)
+  const { pin, setPin, lock } = useAuthStore()
+  const [pinInput, setPinInput] = useState('')
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: settingsApi.get })
   const { data: apiKeyData } = useQuery({ queryKey: ['api-key'], queryFn: settingsApi.getApiKey })
@@ -54,6 +56,7 @@ export default function SettingsPage() {
     { id: 'network', label: 'Jaringan', icon: <Wifi className="w-4 h-4" /> },
     { id: 'apikey', label: 'API Key', icon: <Key className="w-4 h-4" /> },
     { id: 'shares', label: 'Share Links', icon: <Link className="w-4 h-4" /> },
+    { id: 'security', label: 'Keamanan', icon: <Lock className="w-4 h-4" /> },
   ]
 
   const inputClass = `w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white
@@ -274,6 +277,69 @@ export default function SettingsPage() {
                   </div>
                 ))
               )}
+            </div>
+          )}
+          {/* ── Security ── */}
+          {tab === 'security' && (
+            <div className="space-y-4 rounded-2xl p-6" style={{ background: '#161b22', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <h2 className="text-base font-semibold text-white">Keamanan Aplikasi</h2>
+              <p className="text-sm text-white/40">Kunci layar web secara otomatis jika tidak ada aktivitas selama 15 menit.</p>
+              
+              <div className="mt-6 p-4 rounded-xl bg-white/5 border border-white/10">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
+                    <Lock className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-medium text-white">Layar Kunci PIN</h3>
+                    <p className="text-xs text-white/40">Status: {pin ? <span className="text-green-400">Aktif</span> : 'Nonaktif'}</p>
+                  </div>
+                </div>
+
+                {!pin ? (
+                  <div className="flex gap-2">
+                    <input 
+                      type="password" 
+                      maxLength={6}
+                      placeholder="Masukkan 6 Digit PIN" 
+                      className={inputClass}
+                      value={pinInput}
+                      onChange={e => setPinInput(e.target.value)}
+                    />
+                    <button 
+                      onClick={() => {
+                        if (pinInput.length === 6) {
+                          setPin(pinInput)
+                          setPinInput('')
+                          alert('PIN berhasil disimpan!')
+                        } else {
+                          alert('PIN harus 6 digit!')
+                        }
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-500 whitespace-nowrap"
+                    >
+                      Simpan PIN
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={lock}
+                      className="px-4 py-2 rounded-xl border border-white/10 text-white text-sm font-medium hover:bg-white/5"
+                    >
+                      Kunci Sekarang
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if(confirm('Hapus PIN perlindungan?')) setPin(null)
+                      }}
+                      className="px-4 py-2 rounded-xl bg-red-500/10 text-red-400 text-sm font-medium hover:bg-red-500/20"
+                    >
+                      Hapus PIN
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </motion.div>

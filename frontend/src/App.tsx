@@ -12,6 +12,32 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />
 }
 
+function ActivityTracker() {
+  const { pin, lock, isLocked } = useAuthStore()
+  
+  useEffect(() => {
+    if (!pin || isLocked) return
+    
+    let timeout: NodeJS.Timeout
+    const resetTimer = () => {
+      clearTimeout(timeout)
+      // 15 minutes = 15 * 60 * 1000
+      timeout = setTimeout(() => lock(), 15 * 60 * 1000)
+    }
+    
+    resetTimer()
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart']
+    events.forEach(e => window.addEventListener(e, resetTimer))
+    
+    return () => {
+      clearTimeout(timeout)
+      events.forEach(e => window.removeEventListener(e, resetTimer))
+    }
+  }, [pin, isLocked, lock])
+  
+  return null
+}
+
 function AppRoutes() {
   const { setAuthenticated, setUser } = useAuthStore()
 
@@ -96,6 +122,8 @@ function AppRoutes() {
 }
 
 import { Toaster } from 'react-hot-toast'
+import PinLock from '@/components/PinLock'
+import { useEffect } from 'react'
 
 export default function App() {
   return (
@@ -103,6 +131,8 @@ export default function App() {
       <Toaster position="bottom-right" toastOptions={{
         style: { background: '#161b22', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }
       }} />
+      <ActivityTracker />
+      <PinLock />
       <AppRoutes />
     </BrowserRouter>
   )

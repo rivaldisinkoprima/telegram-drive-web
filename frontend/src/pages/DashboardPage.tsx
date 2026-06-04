@@ -29,6 +29,8 @@ export default function DashboardPage() {
   const tasks = useUploadStore((s) => s.tasks)
   const { uploadFile } = useUpload()
   const [showCreateFolder, setShowCreateFolder] = useState(false)
+  const [e2eEnabled, setE2eEnabled] = useState(false)
+  const [e2ePassword, setE2ePassword] = useState('')
 
   // Load folders
   const { data: foldersData } = useQuery({
@@ -71,11 +73,15 @@ export default function DashboardPage() {
 
   // Dropzone upload
   const onDrop = useCallback(async (accepted: File[]) => {
+    if (e2eEnabled && !e2ePassword) {
+      toast.error('Masukkan password untuk E2EE terlebih dahulu!')
+      return
+    }
     for (const file of accepted) {
-      await uploadFile(file)
+      await uploadFile(file, e2eEnabled ? e2ePassword : undefined)
       qc.invalidateQueries({ queryKey: ['files', currentFolderId] })
     }
-  }, [uploadFile, currentFolderId, qc])
+  }, [uploadFile, currentFolderId, qc, e2eEnabled, e2ePassword])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -253,6 +259,23 @@ export default function DashboardPage() {
                 className={clsx('p-2 transition-all', viewMode === 'list' ? 'bg-blue-600 text-white' : 'text-white/40 hover:text-white hover:bg-white/5')}>
                 <List className="w-4 h-4" />
               </button>
+            </div>
+
+            {/* E2EE Settings */}
+            <div className="flex items-center gap-2 mr-2">
+              <label className="flex items-center gap-1.5 cursor-pointer text-white/60 hover:text-white transition-colors">
+                <input type="checkbox" checked={e2eEnabled} onChange={e => setE2eEnabled(e.target.checked)} className="rounded bg-white/5 border-white/20" />
+                <span className="text-xs font-medium">E2EE</span>
+              </label>
+              {e2eEnabled && (
+                <input 
+                  type="password" 
+                  placeholder="Password..." 
+                  className="px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-blue-500 w-24"
+                  value={e2ePassword}
+                  onChange={e => setE2ePassword(e.target.value)}
+                />
+              )}
             </div>
 
             {/* Upload Button */}

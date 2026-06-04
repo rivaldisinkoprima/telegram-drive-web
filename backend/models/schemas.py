@@ -89,6 +89,7 @@ class FileInfo(BaseModel):
     duration: Optional[int] = None   # untuk audio/video (detik)
     width: Optional[int] = None      # untuk gambar/video
     height: Optional[int] = None
+    is_encrypted: bool = False
 
 class FileListResponse(BaseModel):
     files: list[FileInfo]
