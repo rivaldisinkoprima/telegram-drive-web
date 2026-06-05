@@ -102,15 +102,31 @@ export default function FileCard({ file, onPreview, onPreviewPdf }: Props) {
             E2EE
           </div>
         )}
-        {!file.is_encrypted && (file.has_thumbnail || isImage) ? (
+        {!file.is_encrypted && (file.has_thumbnail || isImage || isPdf) ? (
           <img
-            src={file.has_thumbnail ? filesApi.previewUrl(file.message_id, currentFolderId) : filesApi.streamUrl(file.message_id, currentFolderId)}
+            src={
+              isPdf 
+                ? filesApi.pdfThumbnailUrl(file.message_id, currentFolderId)
+                : (file.has_thumbnail ? filesApi.previewUrl(file.message_id, currentFolderId) : filesApi.streamUrl(file.message_id, currentFolderId))
+            }
             alt={file.file_name}
             className="w-full h-full object-cover"
             loading="lazy"
+            onError={(e) => {
+              // Jika thumbnail PDF gagal dimuat (misal error di server), sembunyikan gambar dan tampilkan ikon fallback
+              e.currentTarget.style.display = 'none';
+              const nextSibling = e.currentTarget.nextElementSibling as HTMLElement;
+              if (nextSibling) nextSibling.style.display = 'flex';
+            }}
           />
-        ) : (
+        ) : null}
+        
+        {(!file.has_thumbnail && !isImage && !isPdf) || file.is_encrypted ? (
           <div className="flex items-center justify-center w-full h-full">
+            {getIcon(file.mime_type)}
+          </div>
+        ) : (
+          <div className="items-center justify-center w-full h-full" style={{ display: 'none' }}>
             {getIcon(file.mime_type)}
           </div>
         )}

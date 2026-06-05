@@ -171,3 +171,64 @@ async def preview_file(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/pdf-thumbnail/{message_id}")
+async def get_pdf_thumbnail(
+    message_id: int,
+    folder_id: Optional[int] = Query(default=None),
+    db: Session = Depends(get_session),
+):
+    """
+    Menghasilkan thumbnail dari halaman pertama PDF menggunakan PyMuPDF.
+    Hasilnya akan di-cache di disk agar tidak perlu dirender ulang.
+    """
+    import os
+    import fitz
+    from fastapi.responses import FileResponse
+    
+    THUMB_DIR = "data/thumbnails"
+    os.makedirs(THUMB_DIR, exist_ok=True)
+    thumb_path = os.path.join(THUMB_DIR, f"{message_id}.webp")
+
+    # Return cached thumbnail if exists
+    if os.path.exists(thumb_path):
+        return FileResponse(thumb_path, media_type="image/webp", headers={"Cache-Control": "max-age=86400"})
+
+    try:
+        client = await telegram_manager.get_client()
+        peer = await _resolve_peer(client, folder_id, db=db)
+        messages = await client.get_messages(peer, ids=message_id)
+        msg = messages if not isinstance(messages, list) else (messages[0] if messages else None)
+
+        if not msg or not msg.media:
+            raise HTTPException(status_code=404, detail="File tidak ditemukan.")
+
+        # Download PDF ke memory
+        pdf_bytes = await client.download_media(msg, bytes)
+        if not pdf_bytes:
+            raise HTTPException(status_code=404, detail="Gagal mengunduh PDF.")
+
+        # Buka PDF dengan PyMuPDF dari memory
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        if doc.page_count == 0:
+            raise HTTPException(status_code=400, detail="PDF kosong.")
+
+        # Render halaman pertama (index 0)
+        page = doc.load_page(0)
+        # matrix 0.5 (resolusi rendah) sangat cukup untuk Card
+        pix = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5))
+        
+        # Konversi ke WebP menggunakan Pillow untuk ukuran file yang jauh lebih kecil
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(pix.tobytes("png")))
+        img.save(thumb_path, format="WEBP", quality=75)
+        
+        doc.close()
+
+        return FileResponse(thumb_path, media_type="image/webp", headers={"Cache-Control": "max-age=86400"})
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

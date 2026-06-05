@@ -112,6 +112,11 @@ export const filesApi = {
     return `/api/stream/preview/${messageId}${params}`
   },
 
+  pdfThumbnailUrl: (messageId: number, folderId?: number | null) => {
+    const params = folderId ? `?folder_id=${folderId}` : ''
+    return `/api/stream/pdf-thumbnail/${messageId}${params}`
+  },
+
   pdfUrl: (messageId: number, folderId?: number | null) => {
     const params = folderId ? `?folder_id=${folderId}` : ''
     return `/api/stream/${messageId}${params}`
