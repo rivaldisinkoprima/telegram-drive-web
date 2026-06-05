@@ -131,8 +131,26 @@ class TelegramClientManager:
         from telethon.errors import SessionPasswordNeededError
 
         client = await self.initialize(api_id, api_hash)
+        
+        # Jika client kebetulan sudah login (misal tersimpan di session lokal),
+        # langsung anggap authorized agar poll_qr sukses
+        if await client.is_user_authorized():
+            self._qr_authorized = True
+            return "already_logged_in"
 
-        # Jalankan QR login flow
+        # Jika task QR login sudah berjalan, paksa recreate token
+        if hasattr(self, "_qr_login_task") and self._qr_login_task:
+            try:
+                await self._qr_login_task.recreate()
+                return self._qr_login_task.url
+            except Exception:
+                pass # Jika gagal, lanjut buat baru
+
+        # Batalkan poll task lama jika ada agar tidak tumpang tindih
+        if hasattr(self, "_qr_poll_task") and self._qr_poll_task:
+            self._qr_poll_task.cancel()
+
+        # Jalankan QR login flow baru
         qr_login = await client.qr_login()
         self._qr_login_task = qr_login
         self._qr_authorized = False
@@ -145,10 +163,18 @@ class TelegramClientManager:
             except SessionPasswordNeededError:
                 # 2FA diperlukan setelah scan QR
                 self._qr_authorized = "password"
-            except Exception:
-                self._qr_authorized = False
+            except asyncio.CancelledError:
+                # Task dibatalkan karena regenerate QR baru
+                pass
+            except Exception as e:
+                # Kadang Telethon melemparkan AuthTokenAlreadyAcceptedError
+                # padahal login sebenarnya sudah berhasil. Kita cek manual:
+                if await client.is_user_authorized():
+                    self._qr_authorized = True
+                else:
+                    self._qr_authorized = False
 
-        asyncio.create_task(_on_qr_done())
+        self._qr_poll_task = asyncio.create_task(_on_qr_done())
 
         # qr_login.url berisi string tg://login?token=...
         return qr_login.url

@@ -28,11 +28,11 @@ export default function PdfModal({ file, currentFolderId, onClose }: PdfModalPro
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 md:p-8"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-zinc-900"
       onClick={onClose}
     >
       <div 
-        className="w-full max-w-6xl h-full bg-zinc-900 rounded-xl overflow-hidden flex flex-col shadow-2xl relative"
+        className="w-full h-full flex flex-col relative"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}

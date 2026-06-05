@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Cloud, QrCode, Phone, Settings } from 'lucide-react'
 import { authApi } from '@/api'
@@ -65,14 +65,9 @@ export default function AuthPage() {
     finally { setLoading(false) }
   }
 
-  async function onStartQR() {
-    setLoading(true); setError('')
-    try {
-      // api_id & api_hash otomatis dibaca dari config storage di backend
-      const res = await authApi.getQrToken(0, '')
-      setQrUrl(res.data.url)
-      setStep('qr')
-      // Poll setiap 2 detik
+  // Polling QR status using standard React effect
+  useEffect(() => {
+    if (step === 'qr') {
       const poll = setInterval(async () => {
         try {
           const r = await authApi.pollQr()
@@ -82,8 +77,36 @@ export default function AuthPage() {
             setUser(me.data)
             navigate('/')
           }
-        } catch { clearInterval(poll) }
-      }, 2000)
+        } catch {
+          // ignore error, keep polling
+        }
+      }, 1000)
+
+      // Auto-regenerate QR Code every 25 seconds
+      const refresh = setInterval(async () => {
+        try {
+          const res = await authApi.getQrToken(0, '')
+          setQrUrl(res.data.url)
+        } catch {
+          // ignore error
+        }
+      }, 25000)
+
+      return () => {
+        clearInterval(poll)
+        clearInterval(refresh)
+      }
+    }
+  }, [step, navigate, setUser])
+
+  async function onStartQR() {
+    setLoading(true); setError('')
+
+    try {
+      const res = await authApi.getQrToken(0, '')
+      setQrUrl(res.data.url)
+      setStep('qr')
+      // Interval is now handled by the useEffect above automatically!
     } catch (e) { handleError(e) }
     finally { setLoading(false) }
   }
@@ -215,7 +238,7 @@ export default function AuthPage() {
                 {qrUrl && (
                   <div className="flex justify-center">
                     <div className="bg-white p-4 rounded-2xl inline-block shadow-xl">
-                      <QRCodeSVG value={qrUrl} size={200} />
+                      <QRCodeSVG value={qrUrl} size={256} level="L" includeMargin={false} />
                     </div>
                   </div>
                 )}

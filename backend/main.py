@@ -29,8 +29,8 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     create_db_and_tables()
-    print("✅ Database siap.")
-    print(f"📄 API Docs: http://localhost:{settings.backend_port}/api/docs")
+    print("Database siap.")
+    print(f"API Docs: http://localhost:{settings.backend_port}/api/docs")
 
     # ── Auto-reconnect: jika session file ada, konek ulang tanpa login ──
     from routers.setup import get_stored_telegram_config
