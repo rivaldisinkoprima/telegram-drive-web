@@ -3,9 +3,11 @@ from pydantic_settings import BaseSettings
 from functools import lru_cache
 
 
+import secrets
+
 class Settings(BaseSettings):
     # JWT
-    secret_key: str = "changeme_use_env_var"
+    secret_key: str = os.getenv("SECRET_KEY", secrets.token_hex(32))
     access_token_expire_minutes: int = 10080  # 7 hari
 
     # Server

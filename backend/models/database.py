@@ -1,4 +1,5 @@
 from sqlmodel import SQLModel, Field, create_engine, Session
+from sqlalchemy import UniqueConstraint
 from typing import Optional
 from datetime import datetime
 import uuid
@@ -42,6 +43,8 @@ class FileCache(SQLModel, table=True):
     width: Optional[int] = None
     height: Optional[int] = None
     is_encrypted: bool = False
+    
+    __table_args__ = (UniqueConstraint("message_id", "folder_id", name="uix_message_folder"),)
 
 
 # --- Database Engine ---

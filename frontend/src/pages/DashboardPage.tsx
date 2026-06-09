@@ -16,6 +16,7 @@ import UploadQueue from '@/components/files/UploadQueue'
 import CreateFolderDialog from '@/components/files/CreateFolderDialog'
 import PreviewModal from '@/components/files/PreviewModal'
 import PdfModal from '@/components/files/PdfModal'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import { useState } from 'react'
 import clsx from 'clsx'
 import toast from 'react-hot-toast'
@@ -27,7 +28,7 @@ export default function DashboardPage() {
   const {
     folders, setFolders, currentFolderId, setCurrentFolder,
     files, setFiles, viewMode, setViewMode, searchQuery, setSearchQuery,
-    selectedFiles, clearSelection, clipboard, setClipboard, currentView, setCurrentView,
+    selectedFiles, toggleSelectFile, clearSelection, clipboard, setClipboard, currentView, setCurrentView,
     isDraggingFile, setIsDraggingFile
   } = useDriveStore()
   const tasks = useUploadStore((s) => s.tasks)
@@ -37,6 +38,7 @@ export default function DashboardPage() {
   const [e2ePassword, setE2ePassword] = useState('')
   const [previewFileId, setPreviewFileId] = useState<number | null>(null)
   const [previewPdfFileId, setPreviewPdfFileId] = useState<number | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'folder' | 'batch', id?: number } | null>(null)
 
   // Load folders
   const { data: foldersData } = useQuery({
@@ -50,11 +52,17 @@ export default function DashboardPage() {
 
   // Load files
   const [isSyncing, setIsSyncing] = useState(false)
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(searchQuery)
+
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedSearchQuery(searchQuery), 300)
+    return () => clearTimeout(handler)
+  }, [searchQuery])
   
   const { data: searchData, isLoading: searchLoading } = useQuery({
-    queryKey: ['search', searchQuery],
-    queryFn: () => filesApi.search(searchQuery),
-    enabled: searchQuery.length > 0,
+    queryKey: ['search', debouncedSearchQuery],
+    queryFn: () => filesApi.search(debouncedSearchQuery),
+    enabled: debouncedSearchQuery.length > 0,
   })
 
   const { data: recentData, isLoading: recentLoading } = useQuery({
@@ -62,6 +70,9 @@ export default function DashboardPage() {
     queryFn: () => filesApi.recent(50),
     enabled: currentView === 'recent' && searchQuery.length === 0,
   })
+
+  const [hasMore, setHasMore] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
 
   const { data: filesData, isLoading: filesLoading } = useQuery({
     queryKey: ['files', currentFolderId],
@@ -90,9 +101,28 @@ export default function DashboardPage() {
     } else if (currentView === 'recent') {
       if (recentData?.data) setFiles(recentData.data.files)
     } else {
-      if (filesData?.data) setFiles(filesData.data.files)
+      if (filesData?.data) {
+        setFiles(filesData.data.files)
+        setHasMore(filesData.data.has_more ?? false)
+      }
     }
   }, [filesData, searchData, recentData, searchQuery, currentView, setFiles])
+
+  const handleLoadMore = async () => {
+    if (!files.length || isLoadingMore) return
+    setIsLoadingMore(true)
+    try {
+      const lastId = files[files.length - 1].message_id
+      const res = await filesApi.list(currentFolderId, lastId, 50, false)
+      const newFiles = res.data.files ?? []
+      setFiles([...files, ...newFiles])
+      setHasMore(res.data.has_more ?? false)
+    } catch {
+      toast.error('Gagal memuat file berikutnya')
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }
 
   // Filtered files is just files now, because search is done backend-side
   const filteredFiles = files
@@ -112,7 +142,7 @@ export default function DashboardPage() {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     noClick: true,
-    disabled: isDraggingFile, // Nonaktifkan dropzone saat drag file internal
+    disabled: isDraggingFile || isSyncing, // Nonaktifkan dropzone saat drag file internal atau sedang sync
   })
 
   // Logout
@@ -136,13 +166,17 @@ export default function DashboardPage() {
     },
   })
 
-  const handleDeleteFolder = (e: React.MouseEvent, id: number) => {
-    e.stopPropagation()
+  const executeDeleteFolder = (id: number) => {
     toast.promise(deleteFolderMut.mutateAsync(id), {
       loading: 'Menghapus folder...',
       success: 'Folder berhasil dihapus',
       error: 'Gagal menghapus folder',
     })
+  }
+
+  const handleDeleteFolder = (e: React.MouseEvent, id: number) => {
+    e.stopPropagation()
+    setDeleteConfirm({ type: 'folder', id })
   }
 
   // Rename folder
@@ -164,23 +198,25 @@ export default function DashboardPage() {
       })
     }
   }
+  const executeBatchDelete = () => {
+    const selectedArr = Array.from(selectedFiles)
+    // Hapus dari UI seketika (Optimistic Update)
+    setFiles(files.filter(f => !selectedArr.includes(f.message_id)))
+    clearSelection()
+    
+    const promises = selectedArr.map(id => filesApi.delete(id, currentFolderId))
+    toast.promise(Promise.all(promises), {
+      loading: 'Menghapus file...',
+      success: () => {
+        qc.invalidateQueries({ queryKey: ['files', currentFolderId] })
+        return 'File berhasil dihapus'
+      },
+      error: 'Gagal menghapus beberapa file'
+    })
+  }
+
   const handleBatchDelete = () => {
-    if (confirm(`Hapus ${selectedFiles.size} file yang dipilih?`)) {
-      const selectedArr = Array.from(selectedFiles)
-      // Hapus dari UI seketika (Optimistic Update)
-      setFiles(files.filter(f => !selectedArr.includes(f.message_id)))
-      clearSelection()
-      
-      const promises = selectedArr.map(id => filesApi.delete(id, currentFolderId))
-      toast.promise(Promise.all(promises), {
-        loading: 'Menghapus file...',
-        success: () => {
-          qc.invalidateQueries({ queryKey: ['files', currentFolderId] })
-          return 'File berhasil dihapus'
-        },
-        error: 'Gagal menghapus beberapa file'
-      })
-    }
+    setDeleteConfirm({ type: 'batch' })
   }
 
   const handleCopy = () => {
@@ -283,6 +319,39 @@ export default function DashboardPage() {
       : currentFolderId
         ? folders.find((f) => f.id === currentFolderId)?.name ?? 'Folder'
         : 'Saved Messages'
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return
+      if (e.ctrlKey && e.key === 'a') {
+        e.preventDefault()
+        filteredFiles.forEach(f => toggleSelectFile(f.message_id))
+      }
+      if (e.key === 'Delete' && selectedFiles.size > 0) {
+        e.preventDefault()
+        handleBatchDelete()
+      }
+      if (e.key === 'Escape') {
+        clearSelection()
+        setClipboard(null)
+      }
+      if (e.ctrlKey && e.key === 'c' && selectedFiles.size > 0) {
+        e.preventDefault()
+        handleCopy()
+      }
+      if (e.ctrlKey && e.key === 'x' && selectedFiles.size > 0) {
+        e.preventDefault()
+        handleCut()
+      }
+      if (e.ctrlKey && e.key === 'v' && clipboard) {
+        e.preventDefault()
+        handlePaste()
+      }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [filteredFiles, selectedFiles, clipboard, toggleSelectFile, clearSelection, setClipboard, handleBatchDelete, handleCopy, handleCut, handlePaste])
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: '#0d1117' }} {...getRootProps()}>
@@ -479,12 +548,13 @@ export default function DashboardPage() {
             </div>
 
             {/* Upload Button */}
-            <label className="flex items-center gap-2 px-4 py-2 rounded-xl cursor-pointer
-              bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400
-              text-white text-sm font-medium transition-all shadow-lg shadow-blue-500/20">
+            <label className={clsx(
+              "flex items-center gap-2 px-4 py-2 rounded-xl cursor-pointer bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white text-sm font-medium transition-all shadow-lg shadow-blue-500/20",
+              isSyncing && "pointer-events-none opacity-50"
+            )}>
               <Upload className="w-4 h-4" />
               Upload
-              <input type="file" multiple className="hidden" onChange={(e) => {
+              <input type="file" multiple className="hidden" disabled={isSyncing} onChange={(e) => {
                 if (e.target.files) onDrop(Array.from(e.target.files))
               }} />
             </label>
@@ -499,9 +569,26 @@ export default function DashboardPage() {
             </div>
           ) : filteredFiles.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-white/20">
-              <File className="w-16 h-16 mb-4" />
-              <p className="text-lg font-medium">Folder ini kosong</p>
-              <p className="text-sm mt-1">Drag & drop atau klik Upload untuk menambahkan file</p>
+              {debouncedSearchQuery.length > 0 ? (
+                <>
+                  <Search className="w-16 h-16 mb-4" />
+                  <p className="text-lg font-medium text-white/40">Tidak ada hasil</p>
+                  <p className="text-sm mt-2">Tidak ada file bernama <span className="text-white/60 font-medium">&ldquo;{debouncedSearchQuery}&rdquo;</span></p>
+                  <p className="text-xs mt-1 text-white/20">Coba kata kunci yang berbeda</p>
+                </>
+              ) : currentView === 'recent' ? (
+                <>
+                  <Clock className="w-16 h-16 mb-4" />
+                  <p className="text-lg font-medium">Belum ada aktivitas</p>
+                  <p className="text-sm mt-1">File yang baru diunggah akan muncul di sini</p>
+                </>
+              ) : (
+                <>
+                  <File className="w-16 h-16 mb-4" />
+                  <p className="text-lg font-medium">Folder ini kosong</p>
+                  <p className="text-sm mt-1">Drag &amp; drop atau klik Upload untuk menambahkan file</p>
+                </>
+              )}
             </div>
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -534,6 +621,23 @@ export default function DashboardPage() {
                   />
                 </motion.div>
               ))}
+            </div>
+          )}
+
+          {/* Load More */}
+          {hasMore && !isDataLoading && currentView === 'folder' && debouncedSearchQuery.length === 0 && (
+            <div className="flex justify-center mt-6">
+              <button
+                onClick={handleLoadMore}
+                disabled={isLoadingMore}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 text-sm font-medium text-white/60 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50"
+              >
+                {isLoadingMore ? (
+                  <><div className="w-4 h-4 border-2 border-white/40 border-t-transparent rounded-full animate-spin" /> Memuat...</>
+                ) : (
+                  <><RefreshCw className="w-4 h-4" /> Muat Lebih Banyak</>  
+                )}
+              </button>
             </div>
           )}
         </div>
@@ -579,6 +683,23 @@ export default function DashboardPage() {
 
       {/* Create Folder Dialog */}
       <CreateFolderDialog open={showCreateFolder} onClose={() => setShowCreateFolder(false)} />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={deleteConfirm !== null}
+        onClose={() => setDeleteConfirm(null)}
+        title={deleteConfirm?.type === 'folder' ? 'Hapus Folder' : 'Hapus File'}
+        message={deleteConfirm?.type === 'folder' 
+          ? 'Apakah Anda yakin ingin menghapus folder ini beserta isinya? Tindakan ini tidak dapat dibatalkan.' 
+          : `Apakah Anda yakin ingin menghapus ${selectedFiles.size} file yang dipilih?`}
+        onConfirm={() => {
+          if (deleteConfirm?.type === 'folder' && deleteConfirm.id) {
+            executeDeleteFolder(deleteConfirm.id)
+          } else if (deleteConfirm?.type === 'batch') {
+            executeBatchDelete()
+          }
+        }}
+      />
 
       {/* Preview Modals */}
       <PreviewModal

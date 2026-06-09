@@ -77,7 +77,8 @@ export default function FileRow({ file, onPreview, onPreviewPdf }: Props) {
 
   const safeMime = file.mime_type || 'application/octet-stream'
   const isImage = safeMime.startsWith('image/')
-  const isMedia = safeMime.startsWith('video/') || safeMime.startsWith('audio/') || safeMime.startsWith('image/')
+  const isVideo = safeMime.startsWith('video/')
+  const isMedia = isVideo || safeMime.startsWith('audio/') || isImage
   const isPdf = safeMime === 'application/pdf'
 
   // Safe date formatting

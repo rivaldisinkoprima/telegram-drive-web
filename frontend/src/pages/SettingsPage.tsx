@@ -5,6 +5,7 @@ import { settingsApi, sharingApi, setupApi } from '@/api'
 import { ArrowLeft, Shield, Wifi, Key, Link, Trash2, Eye, EyeOff, Copy, Check, Cpu, RotateCcw, Lock } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useAuthStore } from '@/stores'
+import ConfirmDialog from '@/components/ConfirmDialog'
 
 type Tab = 'telegram' | 'proxy' | 'network' | 'apikey' | 'shares' | 'security'
 
@@ -16,6 +17,7 @@ export default function SettingsPage() {
   const [showKey, setShowKey] = useState(false)
   const { pin, setPin, lock } = useAuthStore()
   const [pinInput, setPinInput] = useState('')
+  const [confirmState, setConfirmState] = useState<{ type: 'reset_api' | 'delete_pin' } | null>(null)
 
   const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: settingsApi.get })
   const { data: apiKeyData } = useQuery({ queryKey: ['api-key'], queryFn: settingsApi.getApiKey })
@@ -124,11 +126,7 @@ export default function SettingsPage() {
                   Untuk mengubah API credentials, Anda perlu reset konfigurasi. Ini akan menghapus sesi login aktif.
                 </p>
                 <button
-                  onClick={() => {
-                    if (confirm('Reset konfigurasi Telegram API? Anda akan perlu login ulang.')) {
-                      deleteConfigMut.mutate(undefined)
-                    }
-                  }}
+                  onClick={() => setConfirmState({ type: 'reset_api' })}
                   disabled={deleteConfigMut.isPending}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium
                     text-red-400 border border-red-500/20 hover:bg-red-500/10
@@ -331,9 +329,7 @@ export default function SettingsPage() {
                       Kunci Sekarang
                     </button>
                     <button 
-                      onClick={() => {
-                        if(confirm('Hapus PIN perlindungan?')) setPin(null)
-                      }}
+                      onClick={() => setConfirmState({ type: 'delete_pin' })}
                       className="px-4 py-2 rounded-xl bg-red-500/10 text-red-400 text-sm font-medium hover:bg-red-500/20"
                     >
                       Hapus PIN
@@ -345,6 +341,21 @@ export default function SettingsPage() {
           )}
         </motion.div>
       </div>
+      <ConfirmDialog
+        open={confirmState !== null}
+        onClose={() => setConfirmState(null)}
+        title={confirmState?.type === 'reset_api' ? 'Reset Konfigurasi API' : 'Hapus PIN'}
+        message={confirmState?.type === 'reset_api' 
+          ? 'Apakah Anda yakin ingin mereset konfigurasi Telegram API? Anda akan log out dan harus mengatur ulang konfigurasi.' 
+          : 'Apakah Anda yakin ingin menghapus PIN perlindungan?'}
+        onConfirm={() => {
+          if (confirmState?.type === 'reset_api') {
+            deleteConfigMut.mutate(undefined)
+          } else if (confirmState?.type === 'delete_pin') {
+            setPin(null)
+          }
+        }}
+      />
     </div>
   )
 }

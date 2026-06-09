@@ -5,7 +5,10 @@ import os
 import tempfile
 import uuid
 import hashlib
+import mimetypes
+import urllib.parse
 from typing import Optional
+from telethon.tl.types import DocumentAttributeFilename, InputPeerChannel
 
 from fastapi import (
     APIRouter, Depends, HTTPException,
@@ -58,6 +61,8 @@ async def init_upload(body: UploadInitRequest, _user=Depends(get_current_user)):
 @router.post("/upload/{upload_id}/chunk")
 async def upload_chunk(upload_id: str, request: Request, _user=Depends(get_current_user)):
     """Terima potongan byte dari frontend dan append ke file part."""
+    if not upload_id.isalnum():
+        raise HTTPException(status_code=400, detail="Invalid upload ID")
     file_path = os.path.join(UPLOAD_DIR, f"{upload_id}.part")
     chunk_data = await request.body()
     
@@ -74,6 +79,8 @@ async def finish_upload(
     _user=Depends(get_current_user)
 ):
     """Picu pengunggahan ke Telegram setelah semua chunk diterima."""
+    if not upload_id.isalnum():
+        raise HTTPException(status_code=400, detail="Invalid upload ID")
     file_path = os.path.join(UPLOAD_DIR, f"{upload_id}.part")
     if not os.path.exists(file_path):
         raise HTTPException(404, "File part tidak ditemukan. Mulai ulang upload.")
@@ -81,9 +88,6 @@ async def finish_upload(
     try:
         client = await telegram_manager.get_client()
         peer = await _resolve_peer(client, body.folder_id, db=db)
-        
-        # Paksa nama file asli agar Telegram tidak menyimpan nama temp file (.part)
-        from telethon.tl.types import DocumentAttributeFilename
         
         caption_text = f"🔒 E2EE\n📄 {body.file_name}" if body.is_encrypted else f"📄 {body.file_name}"
         
@@ -98,7 +102,6 @@ async def finish_upload(
         
         os.remove(file_path)
         
-        import mimetypes
         mime_type, _ = mimetypes.guess_type(body.file_name)
         if body.is_encrypted or not mime_type:
             mime_type = "application/octet-stream"
@@ -141,7 +144,6 @@ async def _resolve_peer(client, folder_id: Optional[int], db: Session = None):
             select(FolderCache).where(FolderCache.id == folder_id)
         ).first()
         if cached_folder and cached_folder.access_hash:
-            from telethon.tl.types import InputPeerChannel
             return InputPeerChannel(
                 channel_id=folder_id,
                 access_hash=cached_folder.access_hash
@@ -335,6 +337,7 @@ async def download_file(
     message_id: int,
     folder_id: Optional[int] = Query(default=None),
     db: Session = Depends(get_session),
+    _user=Depends(get_current_user),
 ):
     """Download file langsung dari Telegram ke browser."""
     try:
@@ -355,15 +358,12 @@ async def download_file(
         if doc:
             mime_type = doc.mime_type or mime_type
             for attr in doc.attributes:
-                from telethon.tl.types import DocumentAttributeFilename
                 if isinstance(attr, DocumentAttributeFilename):
                     file_name = attr.file_name
                     break
 
         # Override dengan nama asli dari database jika ada (sangat penting untuk file lama
         # yang di-upload sebelum fix DocumentAttributeFilename atau file temporary)
-        from sqlmodel import select
-        from models.database import FileCache
         stmt = select(FileCache).where(FileCache.message_id == message_id)
         if folder_id:
             stmt = stmt.where(FileCache.folder_id == folder_id)
@@ -376,7 +376,6 @@ async def download_file(
             mime_type = cached_file.mime_type or mime_type
 
         # Encode filename untuk Content-Disposition (handle nama file unicode)
-        import urllib.parse
         encoded_name = urllib.parse.quote(file_name, safe='')
 
         async def stream_generator():

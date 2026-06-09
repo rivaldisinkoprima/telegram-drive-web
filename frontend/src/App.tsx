@@ -1,11 +1,14 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { Toaster } from 'react-hot-toast'
 import { authApi, setupApi } from '@/api'
 import { useAuthStore } from '@/stores'
 import AuthPage from '@/pages/AuthPage'
 import DashboardPage from '@/pages/DashboardPage'
 import SettingsPage from '@/pages/SettingsPage'
 import SetupPage from '@/pages/SetupPage'
+import PinLock from '@/components/PinLock'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -69,6 +72,9 @@ function AppRoutes() {
     staleTime: Infinity,
   })
 
+  const isConfigured = configData?.data?.configured === true
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+
   // Tampilkan loading spinner sebelum routing ditentukan
   if (configLoading || authLoading) {
     return (
@@ -77,9 +83,6 @@ function AppRoutes() {
       </div>
     )
   }
-
-  const isConfigured = configData?.data?.configured === true
-  const isAuthenticated = useAuthStore.getState().isAuthenticated
 
   return (
     <Routes>
@@ -121,9 +124,6 @@ function AppRoutes() {
   )
 }
 
-import { Toaster } from 'react-hot-toast'
-import PinLock from '@/components/PinLock'
-import { useEffect } from 'react'
 
 export default function App() {
   return (

@@ -46,8 +46,13 @@ export function useUpload() {
         })
       }
 
-      // 3. Upload Chunks (1MB per chunk untuk stabilitas)
-      const CHUNK_SIZE = 1024 * 1024 
+      // 3. Upload Chunks (ukuran adaptif berdasarkan file size)
+      // Kecil < 10MB: 512KB, Sedang < 100MB: 2MB, Besar: 4MB
+      const CHUNK_SIZE = file.size < 10 * 1024 * 1024
+        ? 512 * 1024       // 512 KB
+        : file.size < 100 * 1024 * 1024
+          ? 2 * 1024 * 1024  // 2 MB
+          : 4 * 1024 * 1024  // 4 MB
       let lastTime = Date.now()
       let lastOffset = offset
       

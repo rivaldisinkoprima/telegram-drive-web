@@ -1,6 +1,7 @@
 """
 Main FastAPI Application — Entry Point Backend
 """
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -8,26 +9,8 @@ from config import settings
 from models.database import create_db_and_tables
 from routers import auth, folders, files, streaming, sharing, settings as settings_router, setup
 
-app = FastAPI(
-    title="Telegram Drive Web — API",
-    description="Backend API untuk Telegram Drive Web. Dibangun dengan FastAPI + Telethon.",
-    version="1.0.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-)
-
-# ─── CORS Middleware ───────────────────────────────────────
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.allowed_origins_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ─── Database Init ─────────────────────────────────────────
-@app.on_event("startup")
-async def on_startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     create_db_and_tables()
     print("Database siap.")
     print(f"API Docs: http://localhost:{settings.backend_port}/api/docs")
@@ -49,6 +32,27 @@ async def on_startup():
                 print("⚠️  Session file ada tapi tidak authorized. Perlu login ulang.")
         except Exception as e:
             print(f"⚠️  Gagal auto-reconnect Telegram: {e}")
+    yield
+    # Cleanup here if needed
+
+app = FastAPI(
+    title="Telegram Drive Web — API",
+    description="Backend API untuk Telegram Drive Web. Dibangun dengan FastAPI + Telethon.",
+    version="1.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    lifespan=lifespan,
+)
+
+# ─── CORS Middleware ───────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ─── Routers ──────────────────────────────────────────────
 app.include_router(setup.router)           # /api/setup (publik)
