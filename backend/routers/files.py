@@ -85,11 +85,13 @@ async def finish_upload(
         # Paksa nama file asli agar Telegram tidak menyimpan nama temp file (.part)
         from telethon.tl.types import DocumentAttributeFilename
         
+        caption_text = f"🔒 E2EE\n📄 {body.file_name}" if body.is_encrypted else f"📄 {body.file_name}"
+        
         # Telethon otomatis menangani upload file besar
         msg = await client.send_file(
             peer,
             file_path,
-            caption="",
+            caption=caption_text,
             force_document=True,
             attributes=[DocumentAttributeFilename(file_name=body.file_name)],
         )
@@ -158,6 +160,9 @@ def _extract_file_info(message, folder_id: Optional[int]) -> Optional[FileInfo]:
     if not message.media:
         return None
 
+    caption = getattr(message, 'message', '') or getattr(message, 'text', '') or ''
+    is_encrypted_from_caption = '🔒 E2EE' in caption or '🔒' in caption
+    
     doc = getattr(message.media, "document", None)
     photo = getattr(message.media, "photo", None)
 
@@ -169,7 +174,21 @@ def _extract_file_info(message, folder_id: Optional[int]) -> Optional[FileInfo]:
             if isinstance(attr, DocumentAttributeFilename):
                 file_name = attr.file_name
                 
-        is_encrypted = file_name.endswith('.enc')
+        # Override file_name dari caption jika ada (format "📄 nama_file")
+        if '📄' in caption:
+            extracted_name = caption.split('📄')[-1].strip()
+            if extracted_name:
+                file_name = extracted_name
+                
+        # Tebak ulang mime_type berdasarkan file_name yang benar
+        import mimetypes
+        guessed_mime, _ = mimetypes.guess_type(file_name)
+        if guessed_mime and (mime_type == "application/octet-stream" or mime_type == "application/x-tgpart"):
+            mime_type = guessed_mime
+            
+        is_encrypted = is_encrypted_from_caption or file_name.endswith('.enc')
+        if is_encrypted:
+            mime_type = "application/octet-stream"
         
         for attr in doc.attributes:
             from telethon.tl.types import DocumentAttributeVideo, DocumentAttributeAudio
@@ -400,6 +419,15 @@ async def delete_file(
             db.delete(cached)
             db.commit()
             
+        # Hapus file thumbnail lokal jika ada (ekstensi .webp sesuai streaming.py)
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        thumb_path = os.path.join(base_dir, "data", "thumbnails", f"{message_id}.webp")
+        if os.path.exists(thumb_path):
+            try:
+                os.remove(thumb_path)
+            except Exception:
+                pass
+            
         return {"success": True, "message": "File berhasil dihapus."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -425,10 +453,13 @@ async def rename_file(
         client = await telegram_manager.get_client()
         peer = await _resolve_peer(client, folder_id, db=db)
 
-        await client.edit_message(peer, message_id, text=f"📄 {body.new_name}")
-        
         # Update cache
         cached = db.exec(select(FileCache).where(FileCache.message_id == message_id)).first()
+        is_encrypted = cached.is_encrypted if cached else False
+        
+        new_caption = f"🔒 E2EE\n📄 {body.new_name}" if is_encrypted else f"📄 {body.new_name}"
+        await client.edit_message(peer, message_id, text=new_caption)
+        
         if cached:
             cached.file_name = body.new_name
             db.add(cached)
@@ -438,6 +469,41 @@ async def rename_file(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ─────────────────────────────────────
+# RECENT & SEARCH
+# ─────────────────────────────────────
+@router.get("/recent")
+async def get_recent_files(
+    limit: int = 10,
+    db: Session = Depends(get_session),
+    _user=Depends(get_current_user)
+):
+    """Ambil file yang terakhir kali diupload/dimodifikasi."""
+    try:
+        files = db.exec(select(FileCache).order_by(FileCache.date.desc()).limit(limit)).all()
+        return {"files": [f.dict() for f in files]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/search")
+async def search_files(
+    q: str = Query(..., min_length=1),
+    limit: int = 50,
+    db: Session = Depends(get_session),
+    _user=Depends(get_current_user)
+):
+    """Cari file berdasarkan nama secara global (semua folder)."""
+    try:
+        files = db.exec(
+            select(FileCache)
+            .where(FileCache.file_name.ilike(f"%{q}%"))
+            .order_by(FileCache.date.desc())
+            .limit(limit)
+        ).all()
+        return {"files": [f.dict() for f in files]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ─────────────────────────────────────
 # MOVE FILE (forward ke folder lain, hapus dari asli)
@@ -488,6 +554,56 @@ async def move_file(
             db.commit()
 
         return {"success": True, "message": "File berhasil dipindahkan."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ─────────────────────────────────────
+# COPY FILE (forward ke folder lain tanpa hapus)
+# ─────────────────────────────────────
+@router.post("/{message_id}/copy")
+async def copy_file(
+    message_id: int,
+    body: FileMoveRequest,
+    folder_id: Optional[int] = Query(default=None),
+    db: Session = Depends(get_session),
+    _user=Depends(get_current_user),
+):
+    """Salin file ke folder lain dengan cara forward."""
+    try:
+        client = await telegram_manager.get_client()
+        src_peer = await _resolve_peer(client, folder_id, db=db)
+        dst_peer = await _resolve_peer(client, body.target_folder_id, db=db)
+
+        messages = await client.get_messages(src_peer, ids=message_id)
+        msg = messages if not isinstance(messages, list) else (messages[0] if messages else None)
+        if not msg:
+            raise HTTPException(status_code=404, detail="Pesan tidak ditemukan.")
+
+        # Forward ke tujuan
+        fwd_msg = await client.forward_messages(dst_peer, msg)
+        new_msg_id = fwd_msg[0].id if isinstance(fwd_msg, list) else fwd_msg.id
+
+        # Update cache (buat yang baru)
+        cached = db.exec(select(FileCache).where(FileCache.message_id == message_id)).first()
+        if cached:
+            new_cache = FileCache(
+                message_id=new_msg_id,
+                folder_id=body.target_folder_id,
+                file_name=cached.file_name,
+                file_size=cached.file_size,
+                mime_type=cached.mime_type,
+                date=cached.date,
+                has_thumbnail=cached.has_thumbnail,
+                duration=cached.duration,
+                width=cached.width,
+                height=cached.height
+            )
+            db.add(new_cache)
+            db.commit()
+
+        return {"success": True, "message": "File berhasil disalin."}
     except HTTPException:
         raise
     except Exception as e:

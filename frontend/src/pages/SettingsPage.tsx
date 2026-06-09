@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { settingsApi, sharingApi, setupApi } from '@/api'
 import { ArrowLeft, Shield, Wifi, Key, Link, Trash2, Eye, EyeOff, Copy, Check, Cpu, RotateCcw, Lock } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { useAuthStore } from '@/stores'
 
 type Tab = 'telegram' | 'proxy' | 'network' | 'apikey' | 'shares' | 'security'
 

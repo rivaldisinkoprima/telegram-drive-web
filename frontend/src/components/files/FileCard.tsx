@@ -28,7 +28,7 @@ function formatSize(bytes: number) {
 }
 
 export default function FileCard({ file, onPreview, onPreviewPdf }: Props) {
-  const { currentFolderId } = useDriveStore()
+  const { currentFolderId, selectedFiles, toggleSelectFile, files, setFiles, setIsDraggingFile } = useDriveStore()
   const qc = useQueryClient()
   const [shareOpen, setShareOpen] = useState(false)
   const [menuPos, setMenuPos] = useState<{ x: number, y: number } | null>(null)
@@ -46,10 +46,11 @@ export default function FileCard({ file, onPreview, onPreviewPdf }: Props) {
     }
   }, [menuPos])
 
-  const isImage = file.mime_type.startsWith('image/')
-  const isVideo = file.mime_type.startsWith('video/')
-  const isAudio = file.mime_type.startsWith('audio/')
-  const isPdf = file.mime_type === 'application/pdf'
+  const safeMime = file.mime_type || 'application/octet-stream'
+  const isImage = safeMime.startsWith('image/')
+  const isVideo = safeMime.startsWith('video/')
+  const isAudio = safeMime.startsWith('audio/')
+  const isPdf = safeMime === 'application/pdf'
   const isMedia = isImage || isVideo || isAudio
 
   const deleteMut = useMutation({
@@ -58,6 +59,9 @@ export default function FileCard({ file, onPreview, onPreviewPdf }: Props) {
   })
 
   const handleDelete = () => {
+    // Optimistic Update
+    setFiles(files.filter(f => f.message_id !== file.message_id))
+    
     toast.promise(deleteMut.mutateAsync(), {
       loading: 'Menghapus file...',
       success: 'File berhasil dihapus',
@@ -101,6 +105,13 @@ export default function FileCard({ file, onPreview, onPreviewPdf }: Props) {
   return (
     <>
     <div
+      draggable
+      onDragStart={(e) => {
+        setIsDraggingFile(true)
+        e.dataTransfer.setData('application/telegram-drive-file', file.message_id.toString())
+        e.dataTransfer.effectAllowed = 'move'
+      }}
+      onDragEnd={() => setIsDraggingFile(false)}
       onContextMenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
@@ -112,15 +123,34 @@ export default function FileCard({ file, onPreview, onPreviewPdf }: Props) {
           else if (isPdf && onPreviewPdf) onPreviewPdf()
         }
       }}
-      className="relative group rounded-xl border border-white/5 hover:border-blue-500/30
-        transition-all cursor-pointer overflow-hidden"
+      className={`relative group rounded-xl border transition-all cursor-pointer overflow-hidden ${
+        selectedFiles.has(file.message_id) 
+          ? 'border-blue-500 bg-blue-500/10' 
+          : 'border-white/5 hover:border-blue-500/30'
+      }`}
       style={{ background: '#161b22' }}
     >
       {/* Thumbnail / Icon */}
       <div className="aspect-square flex items-center justify-center relative overflow-hidden"
         style={{ background: '#21262d' }}>
+        
+        {/* Selection Checkbox */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            toggleSelectFile(file.message_id)
+          }}
+          className={`absolute top-2 left-2 z-20 w-5 h-5 rounded border flex items-center justify-center transition-all ${
+            selectedFiles.has(file.message_id)
+              ? 'bg-blue-500 border-blue-500'
+              : 'border-white/40 bg-black/40 opacity-0 group-hover:opacity-100 hover:border-white'
+          }`}
+        >
+          {selectedFiles.has(file.message_id) && <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+        </button>
+
         {file.is_encrypted && (
-          <div className="absolute top-2 left-2 z-10 px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[10px] font-bold">
+          <div className="absolute top-2 right-2 z-10 px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[10px] font-bold">
             E2EE
           </div>
         )}
@@ -145,11 +175,11 @@ export default function FileCard({ file, onPreview, onPreviewPdf }: Props) {
         
         {(!file.has_thumbnail && !isImage && !isPdf) || file.is_encrypted ? (
           <div className="flex items-center justify-center w-full h-full">
-            {getIcon(file.mime_type)}
+            {getIcon(safeMime)}
           </div>
         ) : (
           <div className="items-center justify-center w-full h-full" style={{ display: 'none' }}>
-            {getIcon(file.mime_type)}
+            {getIcon(safeMime)}
           </div>
         )}
       </div>

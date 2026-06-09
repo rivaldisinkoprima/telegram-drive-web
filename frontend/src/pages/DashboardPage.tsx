@@ -4,7 +4,7 @@ import { useDropzone } from 'react-dropzone'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Folder, File, Upload, Grid3x3, List, Search,
-  Plus, Settings, LogOut, CloudUpload, X, ChevronRight, Trash2, RefreshCw, Edit
+  Plus, Settings, LogOut, CloudUpload, X, ChevronRight, Trash2, RefreshCw, Edit, Copy, Scissors, ClipboardPaste, XCircle, Clock
 } from 'lucide-react'
 import { foldersApi, filesApi, authApi } from '@/api'
 import { useDriveStore, useAuthStore, useUploadStore } from '@/stores'
@@ -27,6 +27,8 @@ export default function DashboardPage() {
   const {
     folders, setFolders, currentFolderId, setCurrentFolder,
     files, setFiles, viewMode, setViewMode, searchQuery, setSearchQuery,
+    selectedFiles, clearSelection, clipboard, setClipboard, currentView, setCurrentView,
+    isDraggingFile, setIsDraggingFile
   } = useDriveStore()
   const tasks = useUploadStore((s) => s.tasks)
   const { uploadFile } = useUpload()
@@ -48,10 +50,26 @@ export default function DashboardPage() {
 
   // Load files
   const [isSyncing, setIsSyncing] = useState(false)
+  
+  const { data: searchData, isLoading: searchLoading } = useQuery({
+    queryKey: ['search', searchQuery],
+    queryFn: () => filesApi.search(searchQuery),
+    enabled: searchQuery.length > 0,
+  })
+
+  const { data: recentData, isLoading: recentLoading } = useQuery({
+    queryKey: ['recent'],
+    queryFn: () => filesApi.recent(50),
+    enabled: currentView === 'recent' && searchQuery.length === 0,
+  })
+
   const { data: filesData, isLoading: filesLoading } = useQuery({
     queryKey: ['files', currentFolderId],
     queryFn: () => filesApi.list(currentFolderId, 0, 50, false),
+    enabled: currentView === 'folder' && searchQuery.length === 0,
   })
+
+  const isDataLoading = filesLoading || searchLoading || recentLoading
 
   const handleSync = async () => {
     setIsSyncing(true)
@@ -67,13 +85,17 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    if (filesData?.data) setFiles(filesData.data.files)
-  }, [filesData, setFiles])
+    if (searchQuery.length > 0) {
+      if (searchData?.data) setFiles(searchData.data.files)
+    } else if (currentView === 'recent') {
+      if (recentData?.data) setFiles(recentData.data.files)
+    } else {
+      if (filesData?.data) setFiles(filesData.data.files)
+    }
+  }, [filesData, searchData, recentData, searchQuery, currentView, setFiles])
 
-  // Filtered files
-  const filteredFiles = files.filter((f) =>
-    f.file_name.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  // Filtered files is just files now, because search is done backend-side
+  const filteredFiles = files
 
   // Dropzone upload
   const onDrop = useCallback(async (accepted: File[]) => {
@@ -90,6 +112,7 @@ export default function DashboardPage() {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     noClick: true,
+    disabled: isDraggingFile, // Nonaktifkan dropzone saat drag file internal
   })
 
   // Logout
@@ -98,14 +121,18 @@ export default function DashboardPage() {
     onSuccess: () => { resetAuth(); navigate('/login') },
   })
 
-  // Delete folder
+  // Delete folder with Optimistic Update
   const deleteFolderMut = useMutation({
     mutationFn: (id: number) => foldersApi.delete(id),
-    onSuccess: (_, deletedId) => {
-      qc.invalidateQueries({ queryKey: ['folders'] })
+    onMutate: async (deletedId) => {
+      // Hapus folder dari layar seketika
+      setFolders(folders.filter(f => f.id !== deletedId))
       if (currentFolderId === deletedId) {
         setCurrentFolder(null)
       }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['folders'] })
     },
   })
 
@@ -137,10 +164,125 @@ export default function DashboardPage() {
       })
     }
   }
+  const handleBatchDelete = () => {
+    if (confirm(`Hapus ${selectedFiles.size} file yang dipilih?`)) {
+      const selectedArr = Array.from(selectedFiles)
+      // Hapus dari UI seketika (Optimistic Update)
+      setFiles(files.filter(f => !selectedArr.includes(f.message_id)))
+      clearSelection()
+      
+      const promises = selectedArr.map(id => filesApi.delete(id, currentFolderId))
+      toast.promise(Promise.all(promises), {
+        loading: 'Menghapus file...',
+        success: () => {
+          qc.invalidateQueries({ queryKey: ['files', currentFolderId] })
+          return 'File berhasil dihapus'
+        },
+        error: 'Gagal menghapus beberapa file'
+      })
+    }
+  }
 
-  const currentFolderName = currentFolderId
-    ? folders.find((f) => f.id === currentFolderId)?.name ?? 'Folder'
-    : 'Saved Messages'
+  const handleCopy = () => {
+    setClipboard({ action: 'copy', fileIds: Array.from(selectedFiles), sourceFolderId: currentFolderId })
+    clearSelection()
+    toast.success(`${selectedFiles.size} file disalin`)
+  }
+
+  const handleCut = () => {
+    setClipboard({ action: 'cut', fileIds: Array.from(selectedFiles), sourceFolderId: currentFolderId })
+    clearSelection()
+    toast.success(`${selectedFiles.size} file dipotong`)
+  }
+
+  const handlePaste = async () => {
+    if (!clipboard || clipboard.fileIds.length === 0) return
+    
+    if (clipboard.action === 'cut') {
+      const promises = clipboard.fileIds.map(id => filesApi.move(id, currentFolderId, clipboard.sourceFolderId))
+      toast.promise(Promise.all(promises), {
+        loading: 'Memindahkan file...',
+        success: () => {
+          qc.invalidateQueries({ queryKey: ['files', currentFolderId] })
+          if (clipboard.sourceFolderId !== currentFolderId) {
+            qc.invalidateQueries({ queryKey: ['files', clipboard.sourceFolderId] })
+          }
+          setClipboard(null)
+          return 'File berhasil dipindahkan'
+        },
+        error: 'Gagal memindahkan file'
+      })
+    } else if (clipboard.action === 'copy') {
+      const promises = clipboard.fileIds.map(id => filesApi.copy(id, currentFolderId, clipboard.sourceFolderId))
+      toast.promise(Promise.all(promises), {
+        loading: 'Menyalin file...',
+        success: () => {
+          qc.invalidateQueries({ queryKey: ['files', currentFolderId] })
+          setClipboard(null)
+          return 'File berhasil disalin'
+        },
+        error: 'Gagal menyalin file'
+      })
+    }
+  }
+
+  const moveFileMut = useMutation({
+    mutationFn: ({ messageId, targetFolderId }: { messageId: number, targetFolderId: number | null }) => 
+      filesApi.move(messageId, targetFolderId, currentFolderId),
+    onMutate: ({ messageId }) => {
+      // Optimistic: hapus dari view sumber seketika
+      setFiles(files.filter(f => f.message_id !== messageId))
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['files', currentFolderId] })
+    },
+    onError: () => {
+      // Rollback: refresh dari server
+      qc.invalidateQueries({ queryKey: ['files', currentFolderId] })
+    }
+  })
+
+  const handleDropToFolder = (e: React.DragEvent, targetFolderId: number | null) => {
+    e.preventDefault()
+    e.stopPropagation()
+    e.currentTarget.classList.remove('bg-blue-500/20', 'ring-2', 'ring-blue-500')
+    setIsDraggingFile(false)
+    const messageIdStr = e.dataTransfer.getData('application/telegram-drive-file')
+    if (messageIdStr) {
+      const messageId = parseInt(messageIdStr)
+      if (!isNaN(messageId)) {
+        if (targetFolderId === currentFolderId) return // Cannot move to same folder
+        toast.promise(moveFileMut.mutateAsync({ messageId, targetFolderId }), {
+          loading: 'Memindahkan file...',
+          success: 'File berhasil dipindahkan',
+          error: 'Gagal memindahkan file'
+        })
+      }
+    }
+  }
+
+  const handleDragOverFolder = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleDragEnterFolder = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.currentTarget.classList.add('bg-blue-500/20', 'ring-2', 'ring-blue-500')
+  }
+
+  const handleDragLeaveFolder = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.currentTarget.classList.remove('bg-blue-500/20', 'ring-2', 'ring-blue-500')
+  }
+
+  const currentFolderName = searchQuery.length > 0 
+    ? `Pencarian: "${searchQuery}"`
+    : currentView === 'recent' 
+      ? 'Terbaru'
+      : currentFolderId
+        ? folders.find((f) => f.id === currentFolderId)?.name ?? 'Folder'
+        : 'Saved Messages'
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: '#0d1117' }} {...getRootProps()}>
@@ -148,7 +290,7 @@ export default function DashboardPage() {
 
       {/* ── Drag Overlay ── */}
       <AnimatePresence>
-        {isDragActive && (
+        {isDragActive && !isDraggingFile && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center
               bg-blue-600/20 border-2 border-dashed border-blue-500 backdrop-blur-sm">
@@ -179,14 +321,31 @@ export default function DashboardPage() {
           {/* Saved Messages (root) */}
           <button
             onClick={() => setCurrentFolder(null)}
+            onDrop={(e) => handleDropToFolder(e, null)}
+            onDragOver={handleDragOverFolder}
+            onDragEnter={handleDragEnterFolder}
+            onDragLeave={handleDragLeaveFolder}
             className={clsx(
               'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
-              currentFolderId === null
+              currentView === 'folder' && currentFolderId === null
                 ? 'bg-blue-600/20 text-blue-400'
                 : 'text-white/60 hover:text-white hover:bg-white/5'
             )}>
             <Folder className="w-4 h-4" />
             <span>Saved Messages</span>
+          </button>
+
+          {/* Terbaru (Recents) */}
+          <button
+            onClick={() => setCurrentView('recent')}
+            className={clsx(
+              'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
+              currentView === 'recent'
+                ? 'bg-blue-600/20 text-blue-400'
+                : 'text-white/60 hover:text-white hover:bg-white/5'
+            )}>
+            <Clock className="w-4 h-4" />
+            <span>Terbaru</span>
           </button>
 
           {/* Folder list */}
@@ -201,9 +360,13 @@ export default function DashboardPage() {
             {folders.map((folder) => (
               <div key={folder.id} className="group relative">
                 <button onClick={() => setCurrentFolder(folder.id)}
+                  onDrop={(e) => handleDropToFolder(e, folder.id)}
+                  onDragOver={handleDragOverFolder}
+                  onDragEnter={handleDragEnterFolder}
+                  onDragLeave={handleDragLeaveFolder}
                   className={clsx(
                     'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all pr-9',
-                    currentFolderId === folder.id
+                    currentView === 'folder' && currentFolderId === folder.id
                       ? 'bg-blue-600/20 text-blue-400'
                       : 'text-white/60 hover:text-white hover:bg-white/5'
                   )}>
@@ -277,6 +440,13 @@ export default function DashboardPage() {
 
             {/* View Toggle & Sync */}
             <div className="flex rounded-xl overflow-hidden border border-white/10">
+              {clipboard && clipboard.fileIds.length > 0 && (
+                <button onClick={handlePaste} title={`Paste ${clipboard.fileIds.length} file`}
+                  className="p-2 flex items-center gap-1.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 transition-all border-r border-white/10 text-sm font-medium px-3">
+                  <ClipboardPaste className="w-4 h-4" />
+                  Paste
+                </button>
+              )}
               <button onClick={handleSync} disabled={isSyncing} title="Sync dengan Telegram"
                 className="p-2 text-white/40 hover:text-white hover:bg-white/5 transition-all border-r border-white/10">
                 <RefreshCw className={clsx("w-4 h-4", isSyncing && "animate-spin text-blue-400")} />
@@ -323,7 +493,7 @@ export default function DashboardPage() {
 
         {/* File area */}
         <div className="flex-1 overflow-y-auto p-6">
-          {filesLoading ? (
+          {isDataLoading ? (
             <div className="flex items-center justify-center h-64">
               <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
             </div>
@@ -371,6 +541,41 @@ export default function DashboardPage() {
 
       {/* Upload Queue Panel */}
       {tasks.length > 0 && <UploadQueue />}
+
+      {/* Floating Action Bar */}
+      <AnimatePresence>
+        {selectedFiles.size > 0 && (
+          <motion.div
+            initial={{ y: 100, opacity: 0, x: '-50%' }}
+            animate={{ y: 0, opacity: 1, x: '-50%' }}
+            exit={{ y: 100, opacity: 0, x: '-50%' }}
+            className="fixed bottom-6 left-1/2 z-50 flex items-center gap-2 bg-[#1e2329] border border-white/10 rounded-2xl shadow-2xl px-4 py-3"
+          >
+            <div className="px-3 border-r border-white/10 flex items-center gap-2">
+              <span className="text-white font-medium text-sm bg-blue-500 w-6 h-6 flex items-center justify-center rounded-full">
+                {selectedFiles.size}
+              </span>
+              <span className="text-white/60 text-sm font-medium mr-2">terpilih</span>
+            </div>
+            
+            <button onClick={handleCopy} className="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-colors tooltip" title="Copy">
+              <Copy className="w-5 h-5" />
+            </button>
+            <button onClick={handleCut} className="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-colors tooltip" title="Cut">
+              <Scissors className="w-5 h-5" />
+            </button>
+            <button onClick={handleBatchDelete} className="p-2 rounded-xl text-red-400/70 hover:text-red-400 hover:bg-red-500/10 transition-colors tooltip" title="Delete">
+              <Trash2 className="w-5 h-5" />
+            </button>
+            
+            <div className="w-[1px] h-6 bg-white/10 mx-1" />
+            
+            <button onClick={clearSelection} className="p-2 rounded-xl text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors tooltip" title="Batal">
+              <XCircle className="w-5 h-5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Create Folder Dialog */}
       <CreateFolderDialog open={showCreateFolder} onClose={() => setShowCreateFolder(false)} />

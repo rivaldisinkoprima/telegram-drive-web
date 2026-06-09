@@ -27,7 +27,7 @@ function formatSize(bytes: number) {
 }
 
 export default function FileRow({ file, onPreview, onPreviewPdf }: Props) {
-  const { currentFolderId } = useDriveStore()
+  const { currentFolderId, selectedFiles, toggleSelectFile, files, setFiles, setIsDraggingFile } = useDriveStore()
   const qc = useQueryClient()
   const [shareOpen, setShareOpen] = useState(false)
   const { downloadEncryptedFile, isDownloading, downloadProgress } = useDownload()
@@ -38,6 +38,9 @@ export default function FileRow({ file, onPreview, onPreviewPdf }: Props) {
   })
 
   const handleDelete = () => {
+    // Optimistic Update
+    setFiles(files.filter(f => f.message_id !== file.message_id))
+    
     toast.promise(deleteMut.mutateAsync(), {
       loading: 'Menghapus file...',
       success: 'File berhasil dihapus',
@@ -72,17 +75,52 @@ export default function FileRow({ file, onPreview, onPreviewPdf }: Props) {
     }
   }
 
-  const isImage = file.mime_type.startsWith('image/')
-  const isMedia = file.mime_type.startsWith('video/') || file.mime_type.startsWith('audio/') || file.mime_type.startsWith('image/')
-  const isPdf = file.mime_type === 'application/pdf'
+  const safeMime = file.mime_type || 'application/octet-stream'
+  const isImage = safeMime.startsWith('image/')
+  const isMedia = safeMime.startsWith('video/') || safeMime.startsWith('audio/') || safeMime.startsWith('image/')
+  const isPdf = safeMime === 'application/pdf'
 
+  // Safe date formatting
+  let formattedDate = '—'
+  if (file.date) {
+    const d = new Date(file.date)
+    if (!isNaN(d.getTime())) {
+      formattedDate = format(d, 'dd MMM yyyy')
+    }
+  }
 
   return (
-    <div className="flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-white/3 group transition-all">
+    <div 
+      draggable
+      onDragStart={(e) => {
+        setIsDraggingFile(true)
+        e.dataTransfer.setData('application/telegram-drive-file', file.message_id.toString())
+        e.dataTransfer.effectAllowed = 'move'
+      }}
+      onDragEnd={() => setIsDraggingFile(false)}
+      className={`flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-white/5 group transition-all ${
+        selectedFiles.has(file.message_id) ? 'bg-blue-500/10' : ''
+      }`}
+    >
+      {/* Checkbox */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          toggleSelectFile(file.message_id)
+        }}
+        className={`w-5 h-5 flex-shrink-0 rounded border flex items-center justify-center transition-all ${
+          selectedFiles.has(file.message_id)
+            ? 'bg-blue-500 border-blue-500'
+            : 'border-white/20 hover:border-white/50'
+        }`}
+      >
+        {selectedFiles.has(file.message_id) && <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+      </button>
+
       {/* Icon */}
       <div className="w-8 h-8 flex items-center justify-center rounded-lg flex-shrink-0"
         style={{ background: '#21262d' }}>
-        {getIcon(file.mime_type)}
+        {getIcon(safeMime)}
       </div>
 
       {/* Name — clickable for images */}
@@ -109,7 +147,7 @@ export default function FileRow({ file, onPreview, onPreviewPdf }: Props) {
       {/* Date */}
       <div className="w-32 text-right hidden md:block">
         <span className="text-xs text-white/30">
-          {format(new Date(file.date), 'dd MMM yyyy')}
+          {formattedDate}
         </span>
       </div>
 

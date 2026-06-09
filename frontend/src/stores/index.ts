@@ -75,36 +75,52 @@ export interface FileItem {
 
 type ViewMode = 'grid' | 'list'
 
+interface ClipboardState {
+  action: 'copy' | 'cut'
+  fileIds: number[]
+  sourceFolderId: number | null
+}
+
 interface DriveStore {
   folders: Folder[]
   currentFolderId: number | null
+  currentView: 'folder' | 'recent'
   files: FileItem[]
   selectedFiles: Set<number>
   viewMode: ViewMode
   isLoading: boolean
   searchQuery: string
+  clipboard: ClipboardState | null
+  isDraggingFile: boolean
 
   setFolders: (f: Folder[]) => void
   setCurrentFolder: (id: number | null) => void
+  setCurrentView: (view: 'folder' | 'recent') => void
   setFiles: (files: FileItem[]) => void
   toggleSelectFile: (id: number) => void
   clearSelection: () => void
   setViewMode: (m: ViewMode) => void
   setLoading: (v: boolean) => void
   setSearchQuery: (q: string) => void
+  setClipboard: (c: ClipboardState | null) => void
+  setIsDraggingFile: (b: boolean) => void
 }
 
 export const useDriveStore = create<DriveStore>((set) => ({
   folders: [],
   currentFolderId: null,
+  currentView: 'folder',
   files: [],
   selectedFiles: new Set(),
   viewMode: 'grid',
   isLoading: false,
   searchQuery: '',
+  clipboard: null,
+  isDraggingFile: false,
 
   setFolders: (folders) => set({ folders }),
-  setCurrentFolder: (currentFolderId) => set({ currentFolderId, selectedFiles: new Set(), files: [] }),
+  setCurrentFolder: (currentFolderId) => set({ currentFolderId, currentView: 'folder', selectedFiles: new Set(), files: [] }),
+  setCurrentView: (currentView) => set({ currentView, selectedFiles: new Set(), files: [], currentFolderId: null }),
   setFiles: (files) => set({ files }),
   toggleSelectFile: (id) => set((s) => {
     const next = new Set(s.selectedFiles)
@@ -115,6 +131,8 @@ export const useDriveStore = create<DriveStore>((set) => ({
   setViewMode: (viewMode) => set({ viewMode }),
   setLoading: (isLoading) => set({ isLoading }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
+  setClipboard: (clipboard) => set({ clipboard }),
+  setIsDraggingFile: (isDraggingFile) => set({ isDraggingFile }),
 }))
 
 

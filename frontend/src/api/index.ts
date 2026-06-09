@@ -76,8 +76,14 @@ export const foldersApi = {
 
 // ─── Files ────────────────────────────────────────────────
 export const filesApi = {
-  list: (folderId?: number | null, offsetId = 0, limit = 50, sync = false) =>
+  list: (folderId: number | null, offsetId: number, limit = 50, sync = false) =>
     api.get('/files', { params: { folder_id: folderId, offset_id: offsetId, limit, sync } }),
+
+  search: (query: string, limit = 50) =>
+    api.get('/files/search', { params: { q: query, limit } }),
+
+  recent: (limit = 10) =>
+    api.get('/files/recent', { params: { limit } }),
 
   delete: (messageId: number, folderId?: number | null) =>
     api.delete(`/files/${messageId}`, { params: { folder_id: folderId } }),
@@ -87,6 +93,9 @@ export const filesApi = {
 
   move: (messageId: number, targetFolderId?: number | null, folderId?: number | null) =>
     api.post(`/files/${messageId}/move`, { target_folder_id: targetFolderId }, { params: { folder_id: folderId } }),
+    
+  copy: (messageId: number, targetFolderId?: number | null, folderId?: number | null) =>
+    api.post(`/files/${messageId}/copy`, { target_folder_id: targetFolderId }, { params: { folder_id: folderId } }),
     
   uploadInit: (fileName: string, fileSize: number, folderId?: number | null, isEncrypted = false) =>
     api.post('/files/upload/init', { file_name: fileName, file_size: fileSize, folder_id: folderId, is_encrypted: isEncrypted }),
